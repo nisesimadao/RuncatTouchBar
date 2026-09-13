@@ -39,6 +39,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     private var liveRefreshTimer: Timer?
     private var streamTasks = [Task<Void, Never>]()
     private var processRefreshTask: Task<Void, Never>?
+    private var lastBatteryRefresh = Date.distantPast
 
     private var runnerFrames = [NSImage]()
     private var runnerSpeed: Float = 1.0
@@ -393,15 +394,24 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     }
 
     @objc private func showExpandedTouchBar() {
+        guard !isExpanded else { return }
         isExpanded = true
         refreshMetricsFromObserver()
-        refreshProcessesAndBattery()
+        refreshProcessesAndBattery(forceBattery: true)
+
+        guard privateAPI.present(expandedTouchBar, from: ItemID.tray) else {
+            isExpanded = false
+            stopLiveRefresh()
+            ensureTrayPresence()
+            return
+        }
+
         startLiveRefresh()
-        _ = privateAPI.present(expandedTouchBar, from: ItemID.tray)
         ensureTrayPresence()
     }
 
     @objc private func closeExpandedTouchBar() {
+        guard isExpanded else { return }
         isExpanded = false
         stopLiveRefresh()
         privateAPI.minimize(expandedTouchBar)
@@ -410,13 +420,19 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
 
     private func quitProcess(pid: pid_t) {
         guard pid > 1, pid != getpid() else { return }
-        _ = ProcessSampler.terminate(pid: pid)
+        let requestedGracefully = NSRunningApplication(processIdentifier: pid)?.terminate() ?? false
+        if !requestedGracefully {
+            _ = ProcessSampler.terminate(pid: pid)
+        }
         refreshProcessesSoon()
     }
 
     private func forceKillProcess(pid: pid_t) {
         guard pid > 1, pid != getpid() else { return }
-        _ = ProcessSampler.forceTerminate(pid: pid)
+        let requestedForcefully = NSRunningApplication(processIdentifier: pid)?.forceTerminate() ?? false
+        if !requestedForcefully {
+            _ = ProcessSampler.forceTerminate(pid: pid)
+        }
         refreshProcessesSoon()
     }
 
@@ -428,21 +444,31 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         }
     }
 
-    private func refreshProcessesAndBattery() {
-        processRefreshTask?.cancel()
+    private func refreshProcessesAndBattery(forceBattery: Bool = false) {
+        guard processRefreshTask == nil else { return }
+
+        let shouldRefreshBattery = forceBattery
+            || Date().timeIntervalSince(lastBatteryRefresh) >= 15
+
         processRefreshTask = Task { [weak self] in
             let snapshot = await Task.detached(priority: .utility) {
                 (
                     ProcessSampler.topProcesses(limit: 16),
-                    BatterySampler.snapshot()
+                    shouldRefreshBattery ? BatterySampler.snapshot() : nil
                 )
             }.value
 
             guard !Task.isCancelled, let self else { return }
+            defer { self.processRefreshTask = nil }
+
             self.topProcesses = snapshot.0
-            self.batterySnapshot = snapshot.1
             self.processItem?.update(entries: snapshot.0)
-            self.batteryView?.update(snapshot: snapshot.1)
+
+            if let battery = snapshot.1 {
+                self.batterySnapshot = battery
+                self.lastBatteryRefresh = Date()
+                self.batteryView?.update(snapshot: battery)
+            }
         }
     }
 
@@ -694,6 +720,10 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
     private var rowsByPID = [pid_t: ProcessRowView]()
     private var orderedPIDs = [pid_t]()
     private var lastScrollChange = Date.distantPast
+    private var lastRankRefresh = Date.distantPast
+
+    private let scrollIdleDelay: TimeInterval = 1.1
+    private let rankRefreshInterval: TimeInterval = 3.0
 
     override init(identifier: NSTouchBarItem.Identifier) {
         super.init(identifier: identifier)
@@ -739,10 +769,13 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
     }
 
     func update(entries: [ProcessEntry]) {
+        let now = Date()
         let visibleX = scrollView.documentVisibleRect.origin.x
         let incomingPIDs = entries.map(\.pid)
         let incomingSet = Set(incomingPIDs)
-        let isActivelyScrolling = Date().timeIntervalSince(lastScrollChange) < 1.25
+        let isActivelyScrolling = now.timeIntervalSince(lastScrollChange) < scrollIdleDelay
+        var rankAnchor: (pid: pid_t, offset: CGFloat)?
+        var didReorder = false
 
         for pid in Array(rowsByPID.keys) where !incomingSet.contains(pid) {
             if let row = rowsByPID.removeValue(forKey: pid) {
@@ -779,16 +812,24 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
                 }
             }
 
-            if !isActivelyScrolling && orderedPIDs != incomingPIDs {
-                let rankedRows = incomingPIDs.compactMap { rowsByPID[$0] }
-                for row in rankedRows {
-                    stack.removeArrangedSubview(row)
-                    row.removeFromSuperview()
+            let shouldRefreshRanking = !isActivelyScrolling
+                && now.timeIntervalSince(lastRankRefresh) >= rankRefreshInterval
+
+            if shouldRefreshRanking {
+                lastRankRefresh = now
+                if orderedPIDs != incomingPIDs {
+                    rankAnchor = visibleAnchor(at: visibleX)
+                    let rankedRows = incomingPIDs.compactMap { rowsByPID[$0] }
+                    for row in rankedRows {
+                        stack.removeArrangedSubview(row)
+                        row.removeFromSuperview()
+                    }
+                    for row in rankedRows {
+                        stack.addArrangedSubview(row)
+                    }
+                    orderedPIDs = incomingPIDs
+                    didReorder = true
                 }
-                for row in rankedRows {
-                    stack.addArrangedSubview(row)
-                }
-                orderedPIDs = incomingPIDs
             }
         }
 
@@ -797,12 +838,32 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         contentView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: 30)
         contentView.layoutSubtreeIfNeeded()
 
+        var preferredX = visibleX
+        if didReorder,
+           let rankAnchor,
+           let row = rowsByPID[rankAnchor.pid] {
+            let rowFrame = row.convert(row.bounds, to: contentView)
+            preferredX = rowFrame.minX - rankAnchor.offset
+        }
+
         let maxX = max(0, contentWidth - scrollView.documentVisibleRect.width)
-        let targetX = min(max(0, visibleX), maxX)
+        let targetX = min(max(0, preferredX), maxX)
         if abs(scrollView.documentVisibleRect.origin.x - targetX) > 0.5 {
             scrollView.contentView.scroll(to: NSPoint(x: targetX, y: 0))
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
+    }
+
+    private func visibleAnchor(at visibleX: CGFloat) -> (pid: pid_t, offset: CGFloat)? {
+        let visibleMaxX = visibleX + scrollView.documentVisibleRect.width
+        for pid in orderedPIDs {
+            guard let row = rowsByPID[pid] else { continue }
+            let frame = row.convert(row.bounds, to: contentView)
+            if frame.maxX > visibleX, frame.minX < visibleMaxX {
+                return (pid, frame.minX - visibleX)
+            }
+        }
+        return nil
     }
 
     @objc private func scrollBoundsDidChange(_ notification: Notification) {
@@ -885,6 +946,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         button.imageScaling = .scaleProportionallyDown
         button.isBordered = false
         button.bezelStyle = .inline
+        button.contentTintColor = nil
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true
         button.heightAnchor.constraint(equalToConstant: 30).isActive = true
         button.setAccessibilityLabel("Force quit \(processName)")
@@ -937,10 +999,11 @@ private final class ProcessRowView: NSStackView {
         iconView.widthAnchor.constraint(equalToConstant: 18).isActive = true
         iconView.heightAnchor.constraint(equalToConstant: 18).isActive = true
 
-        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         label.textColor = .white
         label.lineBreakMode = .byTruncatingTail
         label.alignment = .left
+        label.usesSingleLineMode = true
         label.widthAnchor.constraint(equalToConstant: 112).isActive = true
 
         let actions = NSStackView(views: [quitButton, forceButton])
@@ -1033,7 +1096,7 @@ private enum ProcessSampler {
 
             let commandPath = String(fields[3])
             let name = URL(fileURLWithPath: commandPath).lastPathComponent
-            guard !name.isEmpty else { continue }
+            guard !name.isEmpty, name != "ps" else { continue }
 
             entries.append(
                 ProcessEntry(
@@ -1106,6 +1169,7 @@ private enum BatterySampler {
         let charging = lower.contains("charging")
             || lower.contains("charged")
             || lower.contains("ac attached")
+            || lower.contains("ac power")
 
         return BatterySnapshot(
             isAvailable: true,
