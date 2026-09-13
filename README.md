@@ -7,7 +7,7 @@ RunCat, right where your fingers already are.
 [![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](#requirements)
 
 <p align="center">
-  <img src="docs/assets/touchbar-overview.svg" alt="RuncatTouchBar Touch Bar overview placeholder" width="900" />
+  <img src="docs/assets/touchbar-overview.webp" alt="RuncatTouchBar running in the macOS Control Strip" width="900" />
 </p>
 
 RuncatTouchBar is an experimental macOS utility based on **RunCat Neo**. It keeps the selected RunCat runner inside the MacBook Pro **Control Strip**, while leaving Apple's normal brightness, volume, and other controls in place.
@@ -31,12 +31,12 @@ Tap the runner to expand a compact system monitor directly on the Touch Bar.
 ## Touch Bar monitor
 
 <p align="center">
-  <img src="docs/assets/expanded-monitor.svg" alt="Expanded Touch Bar monitor placeholder" width="900" />
+  <img src="docs/assets/expanded-monitor.webp" alt="Expanded RuncatTouchBar system monitor" width="900" />
 </p>
 
 The expanded monitor uses the same system-information source as the main RunCat UI where possible. Process rows are updated in place to reduce scroll jumps, and ranking changes are delayed while you are actively swiping.
 
-> The images above are placeholders. Final screenshots will replace them after physical Touch Bar capture.
+Process names and CPU percentages use separate fields, so long application names can truncate without hiding CPU usage.
 
 ## Download & install
 
@@ -60,7 +60,7 @@ See the [FAQ](./docs/FAQ.md) for more details.
 RuncatTouchBar intentionally reuses the existing RunCat Neo settings instead of maintaining a second configuration system.
 
 <p align="center">
-  <img src="docs/assets/settings.svg" alt="RunCat settings placeholder" width="760" />
+  <img src="docs/assets/settings.webp" alt="RunCat Neo settings used by RuncatTouchBar" width="760" />
 </p>
 
 Runner selection, custom runners, animation speed behavior, enabled metrics, and monitoring interval stay shared between the menu-bar app and Touch Bar surface.
@@ -142,4 +142,4 @@ The upstream license and copyright notices are retained in this repository.
 
 ## Status
 
-The project compiles and packages successfully in GitHub Actions. Physical Control Strip rendering, tap behavior, swipe feel, and process actions still require validation on a real Touch Bar Mac because GitHub's macOS runners do not provide Touch Bar hardware.
+The project compiles and packages successfully in GitHub Actions. Physical Touch Bar rendering and Control Strip integration have also been verified on a Touch Bar Mac. Process actions should still be treated carefully because they terminate real user processes.
