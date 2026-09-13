@@ -9,13 +9,24 @@ on:
 
 jobs:
   package:
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 30
-    env:
-      DEVELOPER_DIR: "/Applications/Xcode_26.5.0.app/Contents/Developer"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Select latest Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode_path="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' | sort -V | tail -1)"
+          if [ -z "$xcode_path" ]; then
+            echo "No Xcode 26 installation found" >&2
+            ls -1 /Applications | grep '^Xcode' || true
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$xcode_path/Contents/Developer" >> "$GITHUB_ENV"
+          "$xcode_path/Contents/Developer/usr/bin/xcodebuild" -version
 
       - name: Build unsigned app
         run: |
