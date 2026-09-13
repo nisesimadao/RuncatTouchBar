@@ -1098,7 +1098,8 @@ private final class ProcessRowView: NSStackView {
     let pid: pid_t
 
     private let iconView = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let nameLabel = NSTextField(labelWithString: "")
+    private let cpuLabel = NSTextField(labelWithString: "--%")
 
     init(entry: ProcessEntry, icon: NSImage, quitButton: NSButton, forceButton: NSButton) {
         pid = entry.pid
@@ -1109,12 +1110,27 @@ private final class ProcessRowView: NSStackView {
         iconView.widthAnchor.constraint(equalToConstant: 18).isActive = true
         iconView.heightAnchor.constraint(equalToConstant: 18).isActive = true
 
-        label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-        label.textColor = .white
-        label.lineBreakMode = .byTruncatingTail
-        label.alignment = .left
-        label.usesSingleLineMode = true
-        label.widthAnchor.constraint(equalToConstant: 112).isActive = true
+        nameLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        nameLabel.textColor = .white
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.alignment = .left
+        nameLabel.usesSingleLineMode = true
+        nameLabel.widthAnchor.constraint(equalToConstant: 92).isActive = true
+        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        cpuLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        cpuLabel.textColor = .white
+        cpuLabel.lineBreakMode = .byClipping
+        cpuLabel.alignment = .right
+        cpuLabel.usesSingleLineMode = true
+        cpuLabel.widthAnchor.constraint(equalToConstant: 42).isActive = true
+        cpuLabel.setContentHuggingPriority(.required, for: .horizontal)
+        cpuLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let text = NSStackView(views: [nameLabel, cpuLabel])
+        text.orientation = .horizontal
+        text.alignment = .centerY
+        text.spacing = 4
 
         let actions = NSStackView(views: [quitButton, forceButton])
         actions.orientation = .horizontal
@@ -1128,7 +1144,7 @@ private final class ProcessRowView: NSStackView {
         heightAnchor.constraint(equalToConstant: 30).isActive = true
 
         addArrangedSubview(iconView)
-        addArrangedSubview(label)
+        addArrangedSubview(text)
         addArrangedSubview(actions)
         update(entry: entry)
     }
@@ -1138,9 +1154,14 @@ private final class ProcessRowView: NSStackView {
     }
 
     func update(entry: ProcessEntry) {
-        let shortName = String(entry.name.prefix(18))
-        label.stringValue = String(format: "%@ %.0f%%", shortName, entry.cpu)
-        label.toolTip = "PID \(entry.pid) — \(entry.name)"
+        let localizedName = NSRunningApplication(processIdentifier: entry.pid)?.localizedName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = localizedName?.isEmpty == false ? localizedName! : entry.name
+
+        nameLabel.stringValue = displayName
+        cpuLabel.stringValue = String(format: "%.0f%%", entry.cpu)
+        nameLabel.toolTip = "PID \(entry.pid) — \(displayName)"
+        cpuLabel.toolTip = String(format: "CPU %.1f%%", entry.cpu)
     }
 }
 
