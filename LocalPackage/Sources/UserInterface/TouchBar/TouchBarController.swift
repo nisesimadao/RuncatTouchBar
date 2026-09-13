@@ -844,10 +844,9 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         button.tag = Int(pid)
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleProportionallyDown
-        button.isBordered = true
-        button.bezelStyle = .rounded
-        button.bezelColor = .systemRed
-        button.contentTintColor = .white
+        button.isBordered = false
+        button.bezelStyle = .inline
+        button.contentTintColor = .systemRed
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true
         button.setAccessibilityLabel("Force quit \(processName)")
         return button
