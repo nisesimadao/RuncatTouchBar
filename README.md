@@ -7,7 +7,9 @@ RunCat, right where your fingers already are.
 [![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](#requirements)
 
 <p align="center">
-  <img src="docs/assets/touchbar-overview.webp" alt="RuncatTouchBar running in the macOS Control Strip" width="900" />
+  <a href="docs/assets/touchbar-overview.webp">
+    <img src="docs/assets/touchbar-overview.webp" alt="RuncatTouchBar running in the macOS Control Strip" width="1200" />
+  </a>
 </p>
 
 RuncatTouchBar is an experimental macOS utility based on **RunCat Neo**. It keeps the selected RunCat runner inside the MacBook Pro **Control Strip**, while leaving Apple's normal brightness, volume, and other controls in place.
@@ -31,7 +33,9 @@ Tap the runner to expand a compact system monitor directly on the Touch Bar.
 ## Touch Bar monitor
 
 <p align="center">
-  <img src="docs/assets/expanded-monitor.webp" alt="Expanded RuncatTouchBar system monitor" width="900" />
+  <a href="docs/assets/expanded-monitor.webp">
+    <img src="docs/assets/expanded-monitor.webp" alt="Expanded RuncatTouchBar system monitor" width="1200" />
+  </a>
 </p>
 
 The expanded monitor uses the same system-information source as the main RunCat UI where possible. Process rows are updated in place to reduce scroll jumps, and ranking changes are delayed while you are actively swiping.
@@ -60,7 +64,9 @@ See the [FAQ](./docs/FAQ.md) for more details.
 RuncatTouchBar intentionally reuses the existing RunCat Neo settings instead of maintaining a second configuration system.
 
 <p align="center">
-  <img src="docs/assets/settings.webp" alt="RunCat Neo settings used by RuncatTouchBar" width="760" />
+  <a href="docs/assets/settings.webp">
+    <img src="docs/assets/settings.webp" alt="RunCat Neo settings used by RuncatTouchBar" width="760" />
+  </a>
 </p>
 
 Runner selection, custom runners, animation speed behavior, enabled metrics, and monitoring interval stay shared between the menu-bar app and Touch Bar surface.
@@ -115,7 +121,7 @@ xcodebuild \
 
 ## Releases / CI
 
-Pushing a `vX.Y.Z` tag runs the release workflow. It builds the arm64 app, validates the version, applies an ad-hoc signature, packages `RuncatTouchBar.zip`, uploads a workflow artifact, and publishes a GitHub Release with generated notes.
+Pushing a `vX.Y.Z` tag runs the release workflow. It builds the arm64 app, validates the version, applies an ad-hoc signature, packages `RuncatTouchBar.zip`, uploads a workflow artifact, and publishes a GitHub Release. If `docs/RELEASE_NOTES_vX.Y.Z.md` exists, the workflow uses that curated file as the release body; otherwise it falls back to GitHub-generated notes.
 
 Normal pushes to `main` continue to use the separate **Build & Package** workflow for development artifacts.
 
