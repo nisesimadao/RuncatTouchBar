@@ -1,0 +1,50 @@
+name: Configure Touch Bar target
+
+on:
+  push:
+    branches: [project-config]
+    paths:
+      - '.github/workflows/configure-project.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: project-config
+          fetch-depth: 0
+
+      - name: Patch project settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('RunCatNeo.xcodeproj/project.pbxproj')
+          text = path.read_text()
+          replacements = {
+              'ENABLE_APP_SANDBOX = YES;': 'ENABLE_APP_SANDBOX = NO;',
+              'PRODUCT_BUNDLE_IDENTIFIER = com.kyome.Neo.RunCat;': 'PRODUCT_BUNDLE_IDENTIFIER = dev.nisesimadao.RuncatTouchBar;',
+              'INFOPLIST_KEY_CFBundleDisplayName = "RunCat Neo";': 'INFOPLIST_KEY_CFBundleDisplayName = "RunCat Touch Bar";',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'Missing expected project setting: {old}')
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+
+      - name: Commit project configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add RunCatNeo.xcodeproj/project.pbxproj
+          git commit -m "Configure app for Control Strip integration"
+          git push origin HEAD:project-config
