@@ -7,7 +7,7 @@
 [![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](#必要環境)
 
 <p align="center">
-  <img src="docs/assets/touchbar-overview.svg" alt="RuncatTouchBar Touch Bar overview placeholder" width="900" />
+  <img src="docs/assets/touchbar-overview.webp" alt="Control Strip上で動作するRuncatTouchBar" width="900" />
 </p>
 
 RuncatTouchBar は **RunCat Neo** をベースにした実験的な macOS ユーティリティです。MacBook Pro の **Control Strip** に選択中の RunCat を常駐させつつ、Apple 純正の明るさ・音量などの操作はそのまま残します。
@@ -31,12 +31,12 @@ Runner をタップすると、Touch Bar 上にコンパクトなシステムモ
 ## Touch Barモニター
 
 <p align="center">
-  <img src="docs/assets/expanded-monitor.svg" alt="Expanded Touch Bar monitor placeholder" width="900" />
+  <img src="docs/assets/expanded-monitor.webp" alt="展開したRuncatTouchBarシステムモニター" width="900" />
 </p>
 
 システム情報は可能な限り RunCat 本体と同じ監視ソースを利用します。プロセス行は毎回作り直さず更新し、スワイプ中はCPU順位の並べ替えを抑えてスクロールのカクつきを減らしています。
 
-> 上の画像はプレースホルダーです。実機で撮影後、最終スクリーンショットへ差し替えます。
+プロセス名とCPU使用率は別フィールドに分け、名前が長くても `%` 側が省略されないようにしています。
 
 ## ダウンロード / インストール
 
@@ -60,7 +60,7 @@ xattr -dr com.apple.quarantine /Applications/RuncatTouchBar.app
 RuncatTouchBar専用の設定画面をもう1つ作るのではなく、既存のRunCat Neo設定をそのまま共有する方針です。
 
 <p align="center">
-  <img src="docs/assets/settings.svg" alt="RunCat settings placeholder" width="760" />
+  <img src="docs/assets/settings.webp" alt="RuncatTouchBarと共有するRunCat Neo設定" width="760" />
 </p>
 
 Runner選択、Custom Runner、アニメーション速度、表示するメトリクス、監視更新間隔をメニューバー側とTouch Bar側で共通化しています。
@@ -142,4 +142,4 @@ RuncatTouchBar は Kyome22 / RunCat Developers による **RunCat Neo** をベ�
 
 ## 現在の状態
 
-GitHub Actions上でコンパイル・パッケージ成功を確認しています。一方、GitHubのmacOS runnerには物理Touch Barがないため、Control Strip表示、タップ、スワイプ感、プロセス終了操作の最終確認はTouch Bar搭載実機で行います。
+GitHub Actions上でコンパイル・パッケージ成功を確認しています。Touch Bar搭載実機でもControl Strip表示と展開表示を確認済みです。プロセス終了機能は実際のユーザープロセスを終了するため、使用時は注意してください。
