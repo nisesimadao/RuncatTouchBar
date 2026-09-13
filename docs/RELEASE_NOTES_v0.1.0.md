@@ -36,7 +36,8 @@ This build is ad-hoc signed, but is not Developer ID signed or notarized.
 
 ## Tested
 
-- GitHub Actions: macOS 26 arm64 Release build / packaging
-- Physical Touch Bar: Control Strip runner, expanded monitor, system metrics, horizontal process list, app icons, CPU percentages, normal quit / force-quit UI, and Activity Monitor shortcut visually verified on hardware
+- GitHub Actions: macOS 26 arm64 Release build / packaging.
+- Physical Touch Bar: Control Strip runner, CPU-driven animation speed, repeated open/close, metric visibility settings, refresh interval changes, horizontal process scrolling/ranking refresh, normal Quit, Force Quit, Activity Monitor shortcut, minimize/return to Control Strip, and sleep/wake recovery were all tested successfully on hardware.
+- Long process names were verified to truncate without hiding their CPU percentages.
 
 Because this is the first public release, there is no previous release tag to compare against.
