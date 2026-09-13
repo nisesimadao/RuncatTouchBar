@@ -7,8 +7,8 @@
 [![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](#必要環境)
 
 <p align="center">
-  <a href="docs/assets/touchbar-overview.webp">
-    <img src="docs/assets/touchbar-overview.webp" alt="Control Strip上で動作するRuncatTouchBar" width="1200" />
+  <a href="docs/assets/touchbar-overview-v2.webp">
+    <img src="docs/assets/touchbar-overview-v2.webp" alt="Control Strip上で動作するRuncatTouchBar" width="1200" />
   </a>
 </p>
 
@@ -33,8 +33,8 @@ Runner をタップすると、Touch Bar 上にコンパクトなシステムモ
 ## Touch Barモニター
 
 <p align="center">
-  <a href="docs/assets/expanded-monitor.webp">
-    <img src="docs/assets/expanded-monitor.webp" alt="展開したRuncatTouchBarシステムモニター" width="1200" />
+  <a href="docs/assets/expanded-monitor-v2.webp">
+    <img src="docs/assets/expanded-monitor-v2.webp" alt="展開したRuncatTouchBarシステムモニター" width="1200" />
   </a>
 </p>
 
