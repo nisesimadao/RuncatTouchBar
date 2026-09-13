@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
     paths:
+      - 'LocalPackage/**'
+      - 'RunCatNeo/**'
+      - 'RunCatNeo.xcodeproj/**'
       - '.github/workflows/package-test-app.yml'
 
 permissions:
