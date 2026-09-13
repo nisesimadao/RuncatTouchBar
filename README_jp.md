@@ -7,7 +7,9 @@
 [![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](#必要環境)
 
 <p align="center">
-  <img src="docs/assets/touchbar-overview.webp" alt="Control Strip上で動作するRuncatTouchBar" width="900" />
+  <a href="docs/assets/touchbar-overview.webp">
+    <img src="docs/assets/touchbar-overview.webp" alt="Control Strip上で動作するRuncatTouchBar" width="1200" />
+  </a>
 </p>
 
 RuncatTouchBar は **RunCat Neo** をベースにした実験的な macOS ユーティリティです。MacBook Pro の **Control Strip** に選択中の RunCat を常駐させつつ、Apple 純正の明るさ・音量などの操作はそのまま残します。
@@ -31,7 +33,9 @@ Runner をタップすると、Touch Bar 上にコンパクトなシステムモ
 ## Touch Barモニター
 
 <p align="center">
-  <img src="docs/assets/expanded-monitor.webp" alt="展開したRuncatTouchBarシステムモニター" width="900" />
+  <a href="docs/assets/expanded-monitor.webp">
+    <img src="docs/assets/expanded-monitor.webp" alt="展開したRuncatTouchBarシステムモニター" width="1200" />
+  </a>
 </p>
 
 システム情報は可能な限り RunCat 本体と同じ監視ソースを利用します。プロセス行は毎回作り直さず更新し、スワイプ中はCPU順位の並べ替えを抑えてスクロールのカクつきを減らしています。
@@ -60,7 +64,9 @@ xattr -dr com.apple.quarantine /Applications/RuncatTouchBar.app
 RuncatTouchBar専用の設定画面をもう1つ作るのではなく、既存のRunCat Neo設定をそのまま共有する方針です。
 
 <p align="center">
-  <img src="docs/assets/settings.webp" alt="RuncatTouchBarと共有するRunCat Neo設定" width="760" />
+  <a href="docs/assets/settings.webp">
+    <img src="docs/assets/settings.webp" alt="RuncatTouchBarと共有するRunCat Neo設定" width="760" />
+  </a>
 </p>
 
 Runner選択、Custom Runner、アニメーション速度、表示するメトリクス、監視更新間隔をメニューバー側とTouch Bar側で共通化しています。
@@ -115,7 +121,7 @@ xcodebuild \
 
 ## Release / CI
 
-`vX.Y.Z` タグをpushするとRelease Workflowが実行され、arm64ビルド → バージョン確認 → ad-hoc署名 → `RuncatTouchBar.zip` 作成 → Artifact保存 → GitHub Release公開まで自動で行います。
+`vX.Y.Z` タグをpushするとRelease Workflowが実行され、arm64ビルド → バージョン確認 → ad-hoc署名 → `RuncatTouchBar.zip` 作成 → Artifact保存 → GitHub Release公開まで自動で行います。`docs/RELEASE_NOTES_vX.Y.Z.md` がある場合はその本文を使い、無ければGitHubの自動生成Release Notesを使います。
 
 通常の `main` pushは従来の **Build & Package** Workflowで開発用artifactを作成します。
 
