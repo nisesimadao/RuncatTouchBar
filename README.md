@@ -1,77 +1,145 @@
 # RuncatTouchBar
 
-RunCat Neo をベースに、MacBook Pro の **Touch Bar Control Strip** に RunCat を常駐させる実験的な派生版です。
+RunCat, right where your fingers already are.
 
-普段は純正 Control Strip の中に小さな Runner だけを表示し、タップすると Touch Bar 上に簡易 Activity Monitor を展開します。
+[![Latest release](https://img.shields.io/github/v/release/nisesimadao/RuncatTouchBar?label=download)](https://github.com/nisesimadao/RuncatTouchBar/releases/latest)
+[![Build & Release](https://github.com/nisesimadao/RuncatTouchBar/actions/workflows/release.yml/badge.svg)](https://github.com/nisesimadao/RuncatTouchBar/actions/workflows/release.yml)
+[![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](#requirements)
 
-## Current prototype
+<p align="center">
+  <img src="docs/assets/touchbar-overview.svg" alt="RuncatTouchBar Touch Bar overview placeholder" width="900" />
+</p>
 
-- RunCat の連番アニメーションを Control Strip に常駐表示
-- RunCat Neo と同じ CPU 負荷連動のアニメーション速度
-- RunCat Neo 側で選択した Runner / Custom Runner を Touch Bar にも反映
-- Runner をタップすると system modal Touch Bar を展開
-- CPU 使用率をライブ表示
-- RAM 使用量 / 総容量 / 使用率をライブ表示
-- バッテリー残量 / 充電状態をライブ表示
-- CPU 使用率上位のユーザープロセスを横スクロール表示
-- 各プロセスのアプリアイコン・CPU使用率を表示
-- 通常終了 (`SIGTERM`) と強制終了 (`SIGKILL`) を Touch Bar から実行
-- 展開中は約1秒ごとにメトリクス / プロセス / バッテリーを更新
-- 純正 Control Strip の音量・明るさなどは残す設計
+RuncatTouchBar is an experimental macOS utility based on **RunCat Neo**. It keeps the selected RunCat runner inside the MacBook Pro **Control Strip**, while leaving Apple's normal brightness, volume, and other controls in place.
+
+Tap the runner to expand a compact system monitor directly on the Touch Bar.
+
+[日本語版 README](./README_jp.md)
+
+## Highlights
+
+- **RunCat in the Control Strip** — the runner stays beside Apple's normal Touch Bar controls
+- **Shared RunCat state** — selected runner, custom runners, and CPU-driven animation speed follow RunCat Neo
+- **Live system metrics** — CPU, memory, storage, network traffic, and battery
+- **Shared monitoring settings** — Memory / Storage / Network / Battery visibility follows the main RunCat settings
+- **Shared refresh interval** — the Touch Bar follows RunCat's 3 / 5 / 10 second update setting
+- **Top CPU processes** — horizontally scroll through active user processes with app icons and CPU usage
+- **Quit controls** — request normal termination or force quit a process from the Touch Bar
+- **Activity Monitor shortcut** — jump to the full macOS Activity Monitor when needed
+- **Native Control Strip preserved** — RuncatTouchBar adds one system-tray item instead of replacing the whole strip
+
+## Touch Bar monitor
+
+<p align="center">
+  <img src="docs/assets/expanded-monitor.svg" alt="Expanded Touch Bar monitor placeholder" width="900" />
+</p>
+
+The expanded monitor uses the same system-information source as the main RunCat UI where possible. Process rows are updated in place to reduce scroll jumps, and ranking changes are delayed while you are actively swiping.
+
+> The images above are placeholders. Final screenshots will replace them after physical Touch Bar capture.
+
+## Download & install
+
+Download `RuncatTouchBar.zip` from [Releases](https://github.com/nisesimadao/RuncatTouchBar/releases/latest), unzip it, and move `RuncatTouchBar.app` to `/Applications`.
+
+Release builds are **ad-hoc signed, but not Developer ID signed or notarized**. macOS Gatekeeper may block the first launch. If it does:
+
+1. Right-click `RuncatTouchBar.app` and choose **Open**.
+2. Choose **Open** again in the confirmation dialog.
+
+If necessary:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/RuncatTouchBar.app
+```
+
+See the [FAQ](./docs/FAQ.md) for more details.
+
+## Settings
+
+RuncatTouchBar intentionally reuses the existing RunCat Neo settings instead of maintaining a second configuration system.
+
+<p align="center">
+  <img src="docs/assets/settings.svg" alt="RunCat settings placeholder" width="760" />
+</p>
+
+Runner selection, custom runners, animation speed behavior, enabled metrics, and monitoring interval stay shared between the menu-bar app and Touch Bar surface.
 
 ## Requirements
 
-- Touch Bar 搭載 MacBook Pro
-- macOS 26+
-- Xcode 26.5+
-- Swift 6.2
+- Touch Bar-equipped MacBook Pro
+- macOS 26 or later
+- Apple Silicon for the current downloadable build
 
-## Implementation notes
+Building from source currently expects Xcode 26.5+ and Swift 6.2.
 
-Control Strip への常駐は Apple の公開 API だけでは実現できないため、以下の private API を実行時に動的取得して使用しています。
+## Private API / security note
 
-- `DFRElementSetControlStripPresenceForIdentifier`
-- `DFRSystemModalShowsCloseBoxWhenFrontMost`
-- `+[NSTouchBarItem addSystemTrayItem:]`
-- `+[NSTouchBar presentSystemModalTouchBar:placement:systemTrayItemIdentifier:]`
+Apple does not expose a public API for adding custom items to the Control Strip. RuncatTouchBar therefore resolves private Touch Bar APIs at runtime, including `DFRElementSetControlStripPresenceForIdentifier` and system-tray/modal Touch Bar selectors.
 
-private API が見つからない環境では Control Strip 機能を開始しないようにしています。
+The app also disables App Sandbox for the RuncatTouchBar target so it can inspect and terminate user processes. This is an intentional trade-off for the process-monitor feature. See [Security](./docs/SECURITY.md) and [Privacy](./docs/PRIVACY.md).
 
-プロセス一覧取得と他プロセスへの `SIGTERM` / `SIGKILL` のため、この派生版の app target は App Sandbox を無効化しています。Bundle ID は upstream と衝突しないよう `dev.nisesimadao.RuncatTouchBar` に分離しています。
+If the required private APIs are unavailable, the Control Strip integration does not start.
 
-## Build & test
+## Technical notes
 
-ローカルで Touch Bar 実機テストする場合は、リポジトリのルートでこれを実行します。
+- Swift / SwiftUI + AppKit
+- `NSTouchBar` plus dynamically resolved private Touch Bar APIs
+- Shared `AppDependencies` / RunCat state streams for runner and system metrics
+- `SystemInfoKit` for CPU, memory, storage, network, and battery information
+- `ps` sampling for the top user-process list
+- in-place process row updates with scroll-aware ranking refresh
+- separate bundle identifier: `dev.nisesimadao.RuncatTouchBar`
 
-```sh
+## Build from source
+
+For a quick physical-Touch-Bar test build:
+
+```bash
 bash scripts/build-test-app.sh
 ```
 
-このスクリプトは、既存のテスト版を終了してから Debug ビルド → ad-hoc 署名 → `dist/RuncatTouchBar.app` 作成 → 起動確認までまとめて行います。ZIP も `RuncatTouchBar-test.zip` として生成します。
+Or build directly:
 
-手動でビルドする場合:
-
-```sh
-xcodebuild build \
+```bash
+xcodebuild \
   -project RunCatNeo.xcodeproj \
   -scheme RunCatNeo \
-  -configuration Debug \
-  -destination "platform=macOS,arch=arm64" \
+  -configuration Release \
+  -destination 'generic/platform=macOS' \
+  ARCHS=arm64 \
   CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO
+  CODE_SIGNING_REQUIRED=NO \
+  build
 ```
 
-GitHub Actions の `Build & Package` でも unsigned build → ad-hoc 署名 → ZIP artifact 作成を行います。
+## Releases / CI
+
+Pushing a `vX.Y.Z` tag runs the release workflow. It builds the arm64 app, validates the version, applies an ad-hoc signature, packages `RuncatTouchBar.zip`, uploads a workflow artifact, and publishes a GitHub Release with generated notes.
+
+Normal pushes to `main` continue to use the separate **Build & Package** workflow for development artifacts.
+
+## Project docs
+
+- [Changelog](./docs/CHANGELOG.md)
+- [FAQ](./docs/FAQ.md)
+- [Privacy](./docs/PRIVACY.md)
+- [Security](./docs/SECURITY.md)
+- [Screenshot checklist](./docs/DEMO_ASSETS.md)
+- [Release checklist](./docs/RELEASE_CHECKLIST.md)
+- [Release notes template](./docs/RELEASE_NOTES_TEMPLATE.md)
+- [Contributing](./CONTRIBUTING.md)
+- [License](./LICENSE)
 
 ## Upstream
 
-This project is derived from **RunCat Neo** by Kyome22 / RunCat Developers.
+RuncatTouchBar is derived from **RunCat Neo** by Kyome22 / RunCat Developers.
 
 - Upstream: https://github.com/runcat-dev/RunCatNeo
 - License: Apache License 2.0
 
-RunCat Neo の元ライセンスおよび著作権表示はリポジトリ内に保持しています。
+The upstream license and copyright notices are retained in this repository.
 
 ## Status
 
-Touch Bar の Control Strip 常駐と展開モニターは実装済みです。GitHub の macOS runner には物理 Touch Bar がないため、Control Strip への実表示・タップ展開・プロセス終了操作の最終確認は Touch Bar 搭載実機で行います。
+The project compiles and packages successfully in GitHub Actions. Physical Control Strip rendering, tap behavior, swipe feel, and process actions still require validation on a real Touch Bar Mac because GitHub's macOS runners do not provide Touch Bar hardware.
