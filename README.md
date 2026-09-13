@@ -1,82 +1,64 @@
-# RunCat Neo
+# RuncatTouchBar
 
-**A cute running cat animation on your macOS menubar.**
+RunCat Neo をベースに、MacBook Pro の **Touch Bar Control Strip** に RunCat を常駐させる実験的な派生版です。
 
-> [!CAUTION]
->
-> - This project is for macOS, so we do not accept inquiries about Windows version.
-> - We do not accept issues or pull requests in languages other than English.
-> - Issues that do not follow the Issue Template will be closed without question.
-> - Requests to add new runners are not accepted here. Please make them in the [Runner Gallery](https://runcat-dev.github.io/RunnerGallery/).
+普段は純正 Control Strip の中に小さな Runner だけを表示し、タップすると Touch Bar 上に簡易 Activity Monitor を展開します。
 
-[![Issues](https://img.shields.io/github/issues/runcat-dev/RunCatNeo)](https://github.com/runcat-dev/RunCatNeo/issues)
-[![Forks](https://img.shields.io/github/forks/runcat-dev/RunCatNeo)](https://github.com/runcat-dev/RunCatNeo/network/members)
-[![Stars](https://img.shields.io/github/stars/runcat-dev/RunCatNeo)](https://github.com/runcat-dev/RunCatNeo/stargazers)
-[![Top language](https://img.shields.io/github/languages/top/runcat-dev/RunCatNeo)](https://github.com/runcat-dev/RunCatNeo/)
-[![Releases](https://img.shields.io/github/v/release/runcat-dev/RunCatNeo)](https://github.com/runcat-dev/RunCatNeo/releases)
-[![License](https://img.shields.io/github/license/runcat-dev/RunCatNeo)](https://github.com/runcat-dev/RunCatNeo/)
+## Current prototype
 
-`Swift` `macOS` `Xcode` `RunCat`
+- RunCat の連番アニメーションを Control Strip に常駐表示
+- RunCat Neo と同じ CPU 負荷連動のアニメーション速度
+- RunCat Neo 側で選択した Runner / Custom Runner を Touch Bar にも反映
+- Runner をタップすると system modal Touch Bar を展開
+- CPU 使用率を表示
+- RAM 使用量 / 総容量 / 使用率を表示
+- CPU 使用率上位 3 プロセスを表示
+- 各プロセスに `Quit` ボタンを表示し、`SIGTERM` で終了要求
+- 純正 Control Strip の音量・明るさなどは残す設計
 
-<img src="./docs/images/en/demo.gif" width="449" height="350" alt="demo" />
-
-## Installation
-
-RunCat Neo is available for installation on the App Store.
-
-- Requirement: macOS 26 or higher
-- App Store: https://apps.apple.com/us/app/runcat-neo/id6757801838
-- Language:
-  - Chinese (simplified)
-  - Chinese (traditional)
-  - English (primary)
-  - French
-  - German
-  - Japanese
-  - Korean
-  - Russian
-  - Spanish
-  - Vietnamese
+現時点では `kill -9` のような強制終了は実装していません。
 
 ## Requirements
 
-- Development with Xcode 26.5+
-- Compatible with macOS 26.3+
-- Written in Swift 6.2
+- Touch Bar 搭載 MacBook Pro
+- macOS 26+
+- Xcode 26.5+
+- Swift 6.2
 
-## Architecture
+## Implementation notes
 
-This project is built using an architecture called [LUCA](https://github.com/Kyome22/LUCA).  
-Please refer to the following article for more details.
+Control Strip への常駐は Apple の公開 API だけでは実現できないため、以下の private API を実行時に動的取得して使用しています。
 
-https://dev.to/kyome22/luca-a-modern-architecture-for-swiftui-development-3g2i
+- `DFRElementSetControlStripPresenceForIdentifier`
+- `DFRSystemModalShowsCloseBoxWhenFrontMost`
+- `+[NSTouchBarItem addSystemTrayItem:]`
+- `+[NSTouchBar presentSystemModalTouchBar:placement:systemTrayItemIdentifier:]`
 
-## Custom Metrics
+private API が見つからない環境では Control Strip 機能を開始しないようにしています。
 
-RunCat can watch any local JSON file in the documented format and render it as a card on the dashboard. Use it to display Claude Code usage, GPU temperature, GitHub contributions, remaining reminders, or anything else you can write to a file.
+プロセス一覧取得と他プロセスへの `SIGTERM` のため、この派生版の app target は App Sandbox を無効化しています。Bundle ID は upstream と衝突しないよう `dev.nisesimadao.RuncatTouchBar` に分離しています。
 
-- [JSON schema](docs/CustomMetricsSchema.md)
-- [Claude Code statusLine sample](docs/samples/claude-code/)
-- [Codex integration sample](docs/samples/codex/)
-- [Bitcoin price sample](docs/samples/bitcoin/)
+## Build
 
-## Custom Runners
+```sh
+xcodebuild build \
+  -project RunCatNeo.xcodeproj \
+  -scheme RunCatNeo \
+  -configuration Debug \
+  -destination "platform=macOS,arch=arm64"
+```
 
-By creating your own keyframe animations, you can have any runner you like dashing across your menu bar. You can also find resources for custom runners showcased and distributed in the [Runner Gallery](https://runcat-dev.github.io/RunnerGallery/).
+GitHub Actions にも macOS 26 / Xcode 26.5 のビルドチェックを追加しています。
 
-Runners are managed in the Runner Gallery, not in this repository. If you want a new runner added, or want to share one you made, please head to the [Runner Gallery](https://runcat-dev.github.io/RunnerGallery/) instead of opening an Issue here.
+## Upstream
 
-## RunCat Developers' Community
+This project is derived from **RunCat Neo** by Kyome22 / RunCat Developers.
 
-This is a space for RunCat contributors to communicate closely regarding development and operations.
-We welcome anyone interested in contributing to RunCat.
-However, please note that this is a place for discussing features, not for submitting requests.
-For requests, please create an Issue according to the template.
+- Upstream: https://github.com/runcat-dev/RunCatNeo
+- License: Apache License 2.0
 
-Portal: https://runcat-dev.github.io
+RunCat Neo の元ライセンスおよび著作権表示はリポジトリ内に保持しています。
 
-## Contributors
+## Status
 
-<a href="https://github.com/runcat-dev/RunCatNeo/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=runcat-dev/RunCatNeo" />
-</a>
+初期 MVP の実装を開始した段階です。GitHub Actions 上で Touch Bar 実装を含むソースの Xcode ビルドは成功していますが、GitHub の macOS runner には物理 Touch Bar がないため、Control Strip への実表示・タップ展開・プロセス終了操作は Touch Bar 搭載実機で確認する必要があります。
