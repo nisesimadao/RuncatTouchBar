@@ -24,10 +24,13 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         static let ram = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.ram")
         static let battery = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.battery")
         static let processes = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.processes")
+        static let activityMonitor = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.activityMonitor")
     }
 
     private let appStateClient = AppDependencies.shared.appStateClient
     private let systemInfoObserverClient = AppDependencies.shared.systemInfoObserverClient
+    private let nsWorkspaceClient = AppDependencies.shared.nsWorkspaceClient
+    private let userDefaultsRepository = UserDefaultsRepository(AppDependencies.shared.userDefaultsClient)
     private let privateAPI = TouchBarPrivateAPI.shared
 
     private var isStarted = false
@@ -37,6 +40,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     private var animationTimer: Timer?
     private var trayPresenceTimer: Timer?
     private var liveRefreshTimer: Timer?
+    private var liveRefreshInterval: TimeInterval = 0
     private var streamTasks = [Task<Void, Never>]()
     private var processRefreshTask: Task<Void, Never>?
     private var lastBatteryRefresh = Date.distantPast
@@ -60,13 +64,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     private lazy var expandedTouchBar: NSTouchBar = {
         let touchBar = NSTouchBar()
         touchBar.delegate = self
-        touchBar.defaultItemIdentifiers = [
-            ItemID.close,
-            ItemID.cpu,
-            ItemID.ram,
-            ItemID.battery,
-            ItemID.processes,
-        ]
+        touchBar.defaultItemIdentifiers = expandedItemIdentifiers()
         return touchBar
     }()
 
@@ -124,6 +122,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         trayPresenceTimer = nil
         liveRefreshTimer?.invalidate()
         liveRefreshTimer = nil
+        liveRefreshInterval = 0
         processRefreshTask?.cancel()
         processRefreshTask = nil
         streamTasks.forEach { $0.cancel() }
@@ -204,6 +203,26 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             return item
         }
 
+        if identifier == ItemID.activityMonitor {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let image = NSImage(
+                systemSymbolName: "chart.bar.xaxis",
+                accessibilityDescription: "Open Activity Monitor"
+            ) ?? NSImage(size: NSSize(width: 18, height: 18))
+            image.isTemplate = true
+
+            let button = NSButton(
+                image: image,
+                target: self,
+                action: #selector(openActivityMonitor)
+            )
+            configureInlineIconButton(button)
+            button.widthAnchor.constraint(equalToConstant: 34).isActive = true
+            button.setAccessibilityLabel("Open Activity Monitor")
+            item.view = button
+            return item
+        }
+
         return nil
     }
 
@@ -214,6 +233,43 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         button.isBordered = false
         button.bezelStyle = .inline
         button.contentTintColor = .white
+    }
+
+    private func expandedItemIdentifiers() -> [NSTouchBarItem.Identifier] {
+        let configuration = userDefaultsRepository.systemMetricsConfiguration
+        var identifiers = [ItemID.close, ItemID.cpu]
+        if configuration.monitorsMemory {
+            identifiers.append(ItemID.ram)
+        }
+        if configuration.monitorsBattery {
+            identifiers.append(ItemID.battery)
+        }
+        identifiers.append(ItemID.processes)
+        identifiers.append(ItemID.activityMonitor)
+        return identifiers
+    }
+
+    private func preferredRefreshInterval() -> TimeInterval {
+        TimeInterval(userDefaultsRepository.updateInterval.seconds)
+    }
+
+    private func syncTouchBarPreferences() {
+        guard isExpanded else { return }
+
+        let identifiers = expandedItemIdentifiers()
+        if expandedTouchBar.defaultItemIdentifiers != identifiers {
+            let addedBattery = identifiers.contains(ItemID.battery)
+                && !expandedTouchBar.defaultItemIdentifiers.contains(ItemID.battery)
+            expandedTouchBar.defaultItemIdentifiers = identifiers
+            if addedBattery {
+                refreshProcessesAndBattery(forceBattery: true)
+            }
+        }
+
+        let interval = preferredRefreshInterval()
+        if abs(liveRefreshInterval - interval) > 0.01 {
+            startLiveRefresh()
+        }
     }
 
     private func applyInitialState() {
@@ -296,36 +352,46 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         if let cpu = metrics.systemInfoBundle.cpuInfo {
             cpuText = String(format: "CPU %.0f%%", cpu.percentage.value)
         }
-        if let memory = metrics.systemInfoBundle.memoryInfo {
+
+        let configuration = userDefaultsRepository.systemMetricsConfiguration
+        if configuration.monitorsMemory,
+           let memory = metrics.systemInfoBundle.memoryInfo {
             ramUsedBytes = memory.app.byteCount + memory.wired.byteCount + memory.compressed.byteCount
             ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
             ramFraction = min(1.0, max(0.0, memory.percentage.value / 100.0))
         }
 
         cpuLabel?.stringValue = cpuText
-        ramView?.update(
-            usedBytes: ramUsedBytes,
-            totalBytes: ramTotalBytes,
-            fraction: ramFraction
-        )
+        if configuration.monitorsMemory {
+            ramView?.update(
+                usedBytes: ramUsedBytes,
+                totalBytes: ramTotalBytes,
+                fraction: ramFraction
+            )
+        }
+        syncTouchBarPreferences()
     }
 
     private func refreshMetricsFromObserver() {
         let info = systemInfoObserverClient.currentSystemInfo()
+        let configuration = userDefaultsRepository.systemMetricsConfiguration
         if let cpu = info.cpuInfo {
             cpuText = String(format: "CPU %.0f%%", cpu.percentage.value)
         }
-        if let memory = info.memoryInfo {
+        if configuration.monitorsMemory,
+           let memory = info.memoryInfo {
             ramUsedBytes = memory.app.byteCount + memory.wired.byteCount + memory.compressed.byteCount
             ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
             ramFraction = min(1.0, max(0.0, memory.percentage.value / 100.0))
         }
         cpuLabel?.stringValue = cpuText
-        ramView?.update(
-            usedBytes: ramUsedBytes,
-            totalBytes: ramTotalBytes,
-            fraction: ramFraction
-        )
+        if configuration.monitorsMemory {
+            ramView?.update(
+                usedBytes: ramUsedBytes,
+                totalBytes: ramTotalBytes,
+                fraction: ramFraction
+            )
+        }
     }
 
     private func restartAnimationTimer() {
@@ -356,8 +422,10 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
 
     private func startLiveRefresh() {
         liveRefreshTimer?.invalidate()
+        let interval = preferredRefreshInterval()
+        liveRefreshInterval = interval
         liveRefreshTimer = Timer.scheduledTimer(
-            timeInterval: 1.0,
+            timeInterval: interval,
             target: self,
             selector: #selector(liveRefreshTick),
             userInfo: nil,
@@ -368,6 +436,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     private func stopLiveRefresh() {
         liveRefreshTimer?.invalidate()
         liveRefreshTimer = nil
+        liveRefreshInterval = 0
         processRefreshTask?.cancel()
         processRefreshTask = nil
     }
@@ -384,6 +453,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
 
     @objc private func liveRefreshTick() {
         guard isExpanded else { return }
+        syncTouchBarPreferences()
         refreshMetricsFromObserver()
         refreshProcessesAndBattery()
     }
@@ -396,6 +466,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     @objc private func showExpandedTouchBar() {
         guard !isExpanded else { return }
         isExpanded = true
+        expandedTouchBar.defaultItemIdentifiers = expandedItemIdentifiers()
         refreshMetricsFromObserver()
         refreshProcessesAndBattery(forceBattery: true)
 
@@ -416,6 +487,11 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         stopLiveRefresh()
         privateAPI.minimize(expandedTouchBar)
         ensureTrayPresence()
+    }
+
+    @objc private func openActivityMonitor() {
+        guard let url = nsWorkspaceClient.urlForApplication(String.activityMonitor) else { return }
+        nsWorkspaceClient.openApplication(url, .init())
     }
 
     private func quitProcess(pid: pid_t) {
@@ -447,8 +523,9 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     private func refreshProcessesAndBattery(forceBattery: Bool = false) {
         guard processRefreshTask == nil else { return }
 
-        let shouldRefreshBattery = forceBattery
-            || Date().timeIntervalSince(lastBatteryRefresh) >= 15
+        let configuration = userDefaultsRepository.systemMetricsConfiguration
+        let shouldRefreshBattery = configuration.monitorsBattery
+            && (forceBattery || Date().timeIntervalSince(lastBatteryRefresh) >= 15)
 
         processRefreshTask = Task { [weak self] in
             let snapshot = await Task.detached(priority: .utility) {
