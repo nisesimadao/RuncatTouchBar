@@ -36,6 +36,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -derivedDataPath build \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -68,5 +69,3 @@ jobs:
           path: RuncatTouchBar.zip
           if-no-files-found: error
           retention-days: 7
-
-# Public-repo retry: 2026-09-13
