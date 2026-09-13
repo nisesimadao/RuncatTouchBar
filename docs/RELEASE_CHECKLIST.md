@@ -8,7 +8,8 @@ Use this before pushing a public `vX.Y.Z` tag.
 - [x] Choose the intended `vX.Y.Z` tag: `v0.1.0`.
 - [x] Confirm `main` Build & Package is green for the current Touch Bar code.
 - [x] Confirm the project builds with macOS 26 / current stable Xcode in CI.
-- [ ] Push the tag only after the remaining physical Touch Bar verification below.
+- [x] Complete physical Touch Bar verification before tagging.
+- [ ] Push the `v0.1.0` tag.
 - [ ] Confirm the Build & Release workflow publishes `RuncatTouchBar.zip` and `RuncatTouchBar.zip.sha256`.
 - [ ] Download the actual release ZIP and verify its SHA-256 file.
 
@@ -16,20 +17,20 @@ Use this before pushing a public `vX.Y.Z` tag.
 
 - [x] Run the release-candidate code on a Touch Bar MacBook Pro.
 - [x] Confirm RunCat appears in Control Strip without removing Apple's controls.
-- [x] Confirm the expanded monitor renders CPU / RAM / Storage / Battery and process information on hardware.
+- [x] Confirm the expanded monitor renders CPU / RAM / Storage / Network / Battery and process information on hardware.
 - [x] Confirm long process names truncate without hiding CPU percentages.
 - [x] Confirm the force-quit icon is visually distinct in red.
-- [ ] Confirm animation follows the selected RunCat runner and CPU-driven speed.
-- [ ] Tap the runner repeatedly and confirm the modal does not duplicate or get stuck.
-- [ ] Confirm CPU / RAM / Storage / Network / Battery visibility follows RunCat settings.
-- [ ] Change the RunCat update interval and confirm Touch Bar refresh follows it.
-- [ ] Swipe the process list and confirm it does not jump aggressively during the gesture.
-- [ ] Confirm old process rankings eventually refresh after scrolling stops.
-- [ ] Confirm normal Quit targets the intended process.
-- [ ] Confirm Force Quit targets the intended process.
-- [ ] Confirm the Activity Monitor shortcut opens the correct macOS app.
-- [ ] Close/minimize the expanded Touch Bar and confirm the Control Strip runner remains available.
-- [ ] Sleep/wake once and confirm the tray item returns.
+- [x] Confirm animation follows the selected RunCat runner and CPU-driven speed.
+- [x] Tap the runner repeatedly and confirm the modal does not duplicate or get stuck.
+- [x] Confirm CPU / RAM / Storage / Network / Battery visibility follows RunCat settings.
+- [x] Change the RunCat update interval and confirm Touch Bar refresh follows it.
+- [x] Swipe the process list and confirm it does not jump aggressively during the gesture.
+- [x] Confirm old process rankings eventually refresh after scrolling stops.
+- [x] Confirm normal Quit targets the intended process.
+- [x] Confirm Force Quit targets the intended process.
+- [x] Confirm the Activity Monitor shortcut opens the correct macOS app.
+- [x] Close/minimize the expanded Touch Bar and confirm the Control Strip runner remains available.
+- [x] Sleep/wake once and confirm the tray item returns.
 
 ## Documentation
 
