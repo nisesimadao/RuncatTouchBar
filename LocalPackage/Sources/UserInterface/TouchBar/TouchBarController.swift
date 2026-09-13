@@ -693,6 +693,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
     private let emptyLabel = NSTextField(labelWithString: "No active user processes")
     private var rowsByPID = [pid_t: ProcessRowView]()
     private var orderedPIDs = [pid_t]()
+    private var lastScrollChange = Date.distantPast
 
     override init(identifier: NSTouchBarItem.Identifier) {
         super.init(identifier: identifier)
@@ -723,8 +724,14 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         ])
 
         scrollView.documentView = contentView
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(scrollBoundsDidChange(_:)), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         view = scrollView
         update(entries: [])
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     required init?(coder: NSCoder) {
@@ -735,6 +742,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         let visibleX = scrollView.documentVisibleRect.origin.x
         let incomingPIDs = entries.map(\.pid)
         let incomingSet = Set(incomingPIDs)
+        let isActivelyScrolling = Date().timeIntervalSince(lastScrollChange) < 1.25
 
         for pid in Array(rowsByPID.keys) where !incomingSet.contains(pid) {
             if let row = rowsByPID.removeValue(forKey: pid) {
@@ -770,6 +778,18 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
                     stack.addArrangedSubview(row)
                 }
             }
+
+            if !isActivelyScrolling && orderedPIDs != incomingPIDs {
+                let rankedRows = incomingPIDs.compactMap { rowsByPID[$0] }
+                for row in rankedRows {
+                    stack.removeArrangedSubview(row)
+                    row.removeFromSuperview()
+                }
+                for row in rankedRows {
+                    stack.addArrangedSubview(row)
+                }
+                orderedPIDs = incomingPIDs
+            }
         }
 
         stack.layoutSubtreeIfNeeded()
@@ -778,8 +798,15 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         contentView.layoutSubtreeIfNeeded()
 
         let maxX = max(0, contentWidth - scrollView.documentVisibleRect.width)
-        scrollView.contentView.scroll(to: NSPoint(x: min(max(0, visibleX), maxX), y: 0))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
+        let targetX = min(max(0, visibleX), maxX)
+        if abs(scrollView.documentVisibleRect.origin.x - targetX) > 0.5 {
+            scrollView.contentView.scroll(to: NSPoint(x: targetX, y: 0))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+    }
+
+    @objc private func scrollBoundsDidChange(_ notification: Notification) {
+        lastScrollChange = Date()
     }
 
     private func makeProcessRow(entry: ProcessEntry) -> ProcessRowView {
