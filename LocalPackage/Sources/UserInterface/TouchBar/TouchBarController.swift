@@ -4,7 +4,7 @@
 
  A tiny Activity Monitor for the Touch Bar: the selected RunCat runner lives in
  the Control Strip, follows the existing CPU-driven animation speed, and opens
- an expanded CPU/RAM/battery/process view when tapped.
+ an expanded system/process view when tapped.
  */
 
 import AppKit
@@ -12,6 +12,7 @@ import Darwin
 import DataSource
 import Foundation
 import Model
+import SystemInfoKit
 
 @MainActor
 public final class TouchBarController: NSObject, NSTouchBarDelegate {
@@ -22,6 +23,8 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         static let close = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.close")
         static let cpu = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.cpu")
         static let ram = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.ram")
+        static let storage = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.storage")
+        static let network = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.network")
         static let battery = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.battery")
         static let processes = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.processes")
         static let activityMonitor = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.activityMonitor")
@@ -43,7 +46,6 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     private var liveRefreshInterval: TimeInterval = 0
     private var streamTasks = [Task<Void, Never>]()
     private var processRefreshTask: Task<Void, Never>?
-    private var lastBatteryRefresh = Date.distantPast
 
     private var runnerFrames = [NSImage]()
     private var runnerSpeed: Float = 1.0
@@ -53,11 +55,15 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     private var ramUsedBytes = 0.0
     private var ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
     private var ramFraction = 0.0
+    private var storageText = "SSD --%"
+    private var networkText = "↑-- ↓--"
     private var batterySnapshot = BatterySnapshot.unavailable
     private var topProcesses = [ProcessEntry]()
 
     private weak var cpuLabel: NSTextField?
     private weak var ramView: RAMUsageView?
+    private weak var storageLabel: NSTextField?
+    private weak var networkLabel: NSTextField?
     private weak var batteryView: BatteryUsageView?
     private weak var processItem: ProcessScrollTouchBarItem?
 
@@ -181,6 +187,24 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             return item
         }
 
+        if identifier == ItemID.storage {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let label = statusLabel(storageText, fontSize: 10.5)
+            label.widthAnchor.constraint(equalToConstant: 66).isActive = true
+            storageLabel = label
+            item.view = label
+            return item
+        }
+
+        if identifier == ItemID.network {
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let label = statusLabel(networkText, fontSize: 10)
+            label.widthAnchor.constraint(equalToConstant: 145).isActive = true
+            networkLabel = label
+            item.view = label
+            return item
+        }
+
         if identifier == ItemID.battery {
             let item = NSCustomTouchBarItem(identifier: identifier)
             let view = BatteryUsageView()
@@ -241,6 +265,12 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         if configuration.monitorsMemory {
             identifiers.append(ItemID.ram)
         }
+        if configuration.monitorsStorage {
+            identifiers.append(ItemID.storage)
+        }
+        if configuration.monitorsNetwork {
+            identifiers.append(ItemID.network)
+        }
         if configuration.monitorsBattery {
             identifiers.append(ItemID.battery)
         }
@@ -258,12 +288,8 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
 
         let identifiers = expandedItemIdentifiers()
         if expandedTouchBar.defaultItemIdentifiers != identifiers {
-            let addedBattery = identifiers.contains(ItemID.battery)
-                && !expandedTouchBar.defaultItemIdentifiers.contains(ItemID.battery)
             expandedTouchBar.defaultItemIdentifiers = identifiers
-            if addedBattery {
-                refreshProcessesAndBattery(forceBattery: true)
-            }
+            refreshMetricsFromObserver()
         }
 
         let interval = preferredRefreshInterval()
@@ -349,41 +375,51 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     }
 
     private func applyMetrics(_ metrics: Metrics) {
-        if let cpu = metrics.systemInfoBundle.cpuInfo {
-            cpuText = String(format: "CPU %.0f%%", cpu.percentage.value)
-        }
-
-        let configuration = userDefaultsRepository.systemMetricsConfiguration
-        if configuration.monitorsMemory,
-           let memory = metrics.systemInfoBundle.memoryInfo {
-            ramUsedBytes = memory.app.byteCount + memory.wired.byteCount + memory.compressed.byteCount
-            ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
-            ramFraction = min(1.0, max(0.0, memory.percentage.value / 100.0))
-        }
-
-        cpuLabel?.stringValue = cpuText
-        if configuration.monitorsMemory {
-            ramView?.update(
-                usedBytes: ramUsedBytes,
-                totalBytes: ramTotalBytes,
-                fraction: ramFraction
-            )
-        }
+        applySystemInfo(metrics.systemInfoBundle)
         syncTouchBarPreferences()
     }
 
     private func refreshMetricsFromObserver() {
-        let info = systemInfoObserverClient.currentSystemInfo()
+        applySystemInfo(systemInfoObserverClient.currentSystemInfo())
+    }
+
+    private func applySystemInfo(_ info: SystemInfoBundle) {
         let configuration = userDefaultsRepository.systemMetricsConfiguration
+
         if let cpu = info.cpuInfo {
             cpuText = String(format: "CPU %.0f%%", cpu.percentage.value)
         }
+
         if configuration.monitorsMemory,
            let memory = info.memoryInfo {
             ramUsedBytes = memory.app.byteCount + memory.wired.byteCount + memory.compressed.byteCount
             ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
             ramFraction = min(1.0, max(0.0, memory.percentage.value / 100.0))
         }
+
+        if configuration.monitorsStorage,
+           let storage = info.storageInfo {
+            storageText = String(format: "SSD %.0f%%", storage.percentage.value)
+        }
+
+        if configuration.monitorsNetwork,
+           let network = info.networkInfo {
+            if network.hasConnection {
+                networkText = "↑\(network.upload)/s ↓\(network.download)/s"
+            } else {
+                networkText = "↑-- ↓--"
+            }
+        }
+
+        if configuration.monitorsBattery,
+           let battery = info.batteryInfo {
+            batterySnapshot = BatterySnapshot(
+                isAvailable: battery.isInstalled,
+                fraction: min(1.0, max(0.0, battery.percentage.value / 100.0)),
+                isCharging: battery.isCharging
+            )
+        }
+
         cpuLabel?.stringValue = cpuText
         if configuration.monitorsMemory {
             ramView?.update(
@@ -391,6 +427,15 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
                 totalBytes: ramTotalBytes,
                 fraction: ramFraction
             )
+        }
+        if configuration.monitorsStorage {
+            storageLabel?.stringValue = storageText
+        }
+        if configuration.monitorsNetwork {
+            networkLabel?.stringValue = networkText
+        }
+        if configuration.monitorsBattery {
+            batteryView?.update(snapshot: batterySnapshot)
         }
     }
 
@@ -455,7 +500,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         guard isExpanded else { return }
         syncTouchBarPreferences()
         refreshMetricsFromObserver()
-        refreshProcessesAndBattery()
+        refreshProcesses()
     }
 
     private func ensureTrayPresence() {
@@ -468,7 +513,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         isExpanded = true
         expandedTouchBar.defaultItemIdentifiers = expandedItemIdentifiers()
         refreshMetricsFromObserver()
-        refreshProcessesAndBattery(forceBattery: true)
+        refreshProcesses()
 
         guard privateAPI.present(expandedTouchBar, from: ItemID.tray) else {
             isExpanded = false
@@ -516,42 +561,29 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
-            self?.refreshProcessesAndBattery()
+            self?.refreshProcesses()
         }
     }
 
-    private func refreshProcessesAndBattery(forceBattery: Bool = false) {
+    private func refreshProcesses() {
         guard processRefreshTask == nil else { return }
 
-        let configuration = userDefaultsRepository.systemMetricsConfiguration
-        let shouldRefreshBattery = configuration.monitorsBattery
-            && (forceBattery || Date().timeIntervalSince(lastBatteryRefresh) >= 15)
-
         processRefreshTask = Task { [weak self] in
-            let snapshot = await Task.detached(priority: .utility) {
-                (
-                    ProcessSampler.topProcesses(limit: 16),
-                    shouldRefreshBattery ? BatterySampler.snapshot() : nil
-                )
+            let processes = await Task.detached(priority: .utility) {
+                ProcessSampler.topProcesses(limit: 16)
             }.value
 
             guard !Task.isCancelled, let self else { return }
             defer { self.processRefreshTask = nil }
 
-            self.topProcesses = snapshot.0
-            self.processItem?.update(entries: snapshot.0)
-
-            if let battery = snapshot.1 {
-                self.batterySnapshot = battery
-                self.lastBatteryRefresh = Date()
-                self.batteryView?.update(snapshot: battery)
-            }
+            self.topProcesses = processes
+            self.processItem?.update(entries: processes)
         }
     }
 
-    private func statusLabel(_ text: String) -> NSTextField {
+    private func statusLabel(_ text: String, fontSize: CGFloat = 12) -> NSTextField {
         let label = NSTextField(labelWithString: text)
-        label.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .medium)
         label.textColor = .white
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
@@ -791,7 +823,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
     var onForceKill: ((pid_t) -> Void)?
 
     private let scrollView = NSScrollView()
-    private let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 30))
+    private let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 30))
     private let stack = NSStackView()
     private let emptyLabel = NSTextField(labelWithString: "No active user processes")
     private var rowsByPID = [pid_t: ProcessRowView]()
@@ -799,6 +831,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
     private var lastScrollChange = Date.distantPast
     private var lastRankRefresh = Date.distantPast
 
+    private let viewportWidth: CGFloat = 360
     private let scrollIdleDelay: TimeInterval = 1.1
     private let rankRefreshInterval: TimeInterval = 3.0
 
@@ -812,7 +845,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         scrollView.horizontalScrollElasticity = .allowed
         scrollView.verticalScrollElasticity = .none
         scrollView.scrollerStyle = .overlay
-        scrollView.widthAnchor.constraint(equalToConstant: 460).isActive = true
+        scrollView.widthAnchor.constraint(equalToConstant: viewportWidth).isActive = true
         scrollView.heightAnchor.constraint(equalToConstant: 30).isActive = true
 
         stack.orientation = .horizontal
@@ -911,7 +944,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         }
 
         stack.layoutSubtreeIfNeeded()
-        let contentWidth = max(460, stack.fittingSize.width + 13)
+        let contentWidth = max(viewportWidth, stack.fittingSize.width + 13)
         contentView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: 30)
         contentView.layoutSubtreeIfNeeded()
 
@@ -1201,57 +1234,5 @@ private enum ProcessSampler {
     nonisolated static func forceTerminate(pid: pid_t) -> Bool {
         guard pid > 1, pid != getpid() else { return false }
         return kill(pid, SIGKILL) == 0
-    }
-}
-
-private enum BatterySampler {
-    nonisolated static func snapshot() -> BatterySnapshot {
-        let task = Foundation.Process()
-        let output = Pipe()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        task.arguments = ["-g", "batt"]
-        task.standardOutput = output
-        task.standardError = FileHandle.nullDevice
-
-        do {
-            try task.run()
-            task.waitUntilExit()
-        } catch {
-            return .unavailable
-        }
-        guard task.terminationStatus == 0 else { return .unavailable }
-
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        guard let text = String(data: data, encoding: .utf8) else {
-            return .unavailable
-        }
-
-        guard let percentIndex = text.firstIndex(of: "%") else {
-            return .unavailable
-        }
-
-        var start = percentIndex
-        while start > text.startIndex {
-            let previous = text.index(before: start)
-            guard text[previous].isNumber else { break }
-            start = previous
-        }
-
-        guard start < percentIndex,
-              let percent = Double(text[start..<percentIndex]) else {
-            return .unavailable
-        }
-
-        let lower = text.lowercased()
-        let charging = lower.contains("charging")
-            || lower.contains("charged")
-            || lower.contains("ac attached")
-            || lower.contains("ac power")
-
-        return BatterySnapshot(
-            isAvailable: true,
-            fraction: min(1, max(0, percent / 100)),
-            isCharging: charging
-        )
     }
 }
