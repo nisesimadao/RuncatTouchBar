@@ -688,6 +688,11 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
     var onForceKill: ((pid_t) -> Void)?
 
     private let scrollView = NSScrollView()
+    private let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 30))
+    private let stack = NSStackView()
+    private let emptyLabel = NSTextField(labelWithString: "No active user processes")
+    private var rowsByPID = [pid_t: ProcessRowView]()
+    private var orderedPIDs = [pid_t]()
 
     override init(identifier: NSTouchBarItem.Identifier) {
         super.init(identifier: identifier)
@@ -701,8 +706,24 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         scrollView.scrollerStyle = .overlay
         scrollView.widthAnchor.constraint(equalToConstant: 460).isActive = true
         scrollView.heightAnchor.constraint(equalToConstant: 30).isActive = true
-        view = scrollView
 
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        emptyLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        emptyLabel.textColor = .secondaryLabelColor
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 3),
+            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            stack.heightAnchor.constraint(equalToConstant: 30),
+        ])
+
+        scrollView.documentView = contentView
+        view = scrollView
         update(entries: [])
     }
 
@@ -711,57 +732,70 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
     }
 
     func update(entries: [ProcessEntry]) {
-        let visibleOrigin = scrollView.documentVisibleRect.origin
-        let views: [NSView]
+        let visibleX = scrollView.documentVisibleRect.origin.x
+        let incomingPIDs = entries.map(\.pid)
+        let incomingSet = Set(incomingPIDs)
+        let membershipChanged = incomingSet != Set(orderedPIDs)
 
-        if entries.isEmpty {
-            let empty = NSTextField(labelWithString: "No active user processes")
-            empty.font = .systemFont(ofSize: 11, weight: .medium)
-            empty.textColor = .secondaryLabelColor
-            views = [empty]
-        } else {
-            views = entries.map { entry in
-                makeProcessView(entry: entry)
+        for pid in Array(rowsByPID.keys) where !incomingSet.contains(pid) {
+            if let row = rowsByPID.removeValue(forKey: pid) {
+                stack.removeArrangedSubview(row)
+                row.removeFromSuperview()
             }
         }
 
-        let stack = NSStackView(views: views)
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 3, bottom: 0, right: 10)
-        stack.layoutSubtreeIfNeeded()
+        if entries.isEmpty {
+            for row in rowsByPID.values {
+                stack.removeArrangedSubview(row)
+                row.removeFromSuperview()
+            }
+            rowsByPID.removeAll()
+            orderedPIDs.removeAll()
+            if !stack.arrangedSubviews.contains(where: { $0 === emptyLabel }) {
+                stack.addArrangedSubview(emptyLabel)
+            }
+        } else {
+            if stack.arrangedSubviews.contains(where: { $0 === emptyLabel }) {
+                stack.removeArrangedSubview(emptyLabel)
+                emptyLabel.removeFromSuperview()
+            }
 
-        let fitting = stack.fittingSize
-        let contentWidth = max(scrollView.bounds.width, fitting.width)
-        let contentHeight = max(30, fitting.height)
-        stack.frame = NSRect(x: 0, y: 0, width: contentWidth, height: contentHeight)
-        scrollView.documentView = stack
-        scrollView.layoutSubtreeIfNeeded()
+            for entry in entries {
+                if let row = rowsByPID[entry.pid] {
+                    row.update(entry: entry)
+                } else {
+                    rowsByPID[entry.pid] = makeProcessRow(entry: entry)
+                }
+            }
+
+            // CPU values change every second. Reordering on every sample makes the
+            // Touch Bar visibly jump while the user is swiping. Keep a stable row
+            // order while membership is unchanged; only re-rank when a process
+            // enters or leaves the visible top-process set.
+            if membershipChanged || orderedPIDs.isEmpty {
+                orderedPIDs = incomingPIDs
+                let desiredRows = orderedPIDs.compactMap { rowsByPID[$0] }
+                for row in desiredRows {
+                    stack.removeArrangedSubview(row)
+                    row.removeFromSuperview()
+                }
+                for row in desiredRows {
+                    stack.addArrangedSubview(row)
+                }
+            }
+        }
+
+        stack.layoutSubtreeIfNeeded()
+        let contentWidth = max(460, stack.fittingSize.width + 13)
+        contentView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: 30)
+        contentView.layoutSubtreeIfNeeded()
 
         let maxX = max(0, contentWidth - scrollView.documentVisibleRect.width)
-        let restoredX = min(max(0, visibleOrigin.x), maxX)
-        scrollView.contentView.scroll(to: NSPoint(x: restoredX, y: 0))
+        scrollView.contentView.scroll(to: NSPoint(x: min(max(0, visibleX), maxX), y: 0))
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
-    private func makeProcessView(entry: ProcessEntry) -> NSView {
-        let icon = NSImageView()
-        icon.image = processIcon(for: entry)
-        icon.imageScaling = .scaleProportionallyDown
-        icon.widthAnchor.constraint(equalToConstant: 18).isActive = true
-        icon.heightAnchor.constraint(equalToConstant: 18).isActive = true
-
-        let shortName = String(entry.name.prefix(20))
-        let label = NSTextField(
-            labelWithString: String(format: "%@ %.0f%%", shortName, entry.cpu)
-        )
-        label.font = .systemFont(ofSize: 11, weight: .medium)
-        label.textColor = .white
-        label.lineBreakMode = .byTruncatingTail
-        label.toolTip = "PID \(entry.pid) — \(entry.name)"
-        label.widthAnchor.constraint(lessThanOrEqualToConstant: 125).isActive = true
-
+    private func makeProcessRow(entry: ProcessEntry) -> ProcessRowView {
         let quit = makeIconButton(
             symbolName: "rectangle.portrait.and.arrow.forward",
             accessibilityLabel: "Quit \(entry.name)",
@@ -770,17 +804,12 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         quit.tag = Int(entry.pid)
 
         let force = makeForceKillButton(pid: entry.pid, processName: entry.name)
-
-        let actions = NSStackView(views: [quit, force])
-        actions.orientation = .horizontal
-        actions.alignment = .centerY
-        actions.spacing = 2
-
-        let pair = NSStackView(views: [icon, label, actions])
-        pair.orientation = .horizontal
-        pair.alignment = .centerY
-        pair.spacing = 4
-        return pair
+        return ProcessRowView(
+            entry: entry,
+            icon: processIcon(for: entry),
+            quitButton: quit,
+            forceButton: force
+        )
     }
 
     private func processIcon(for entry: ProcessEntry) -> NSImage {
@@ -825,19 +854,15 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         button.bezelStyle = .inline
         button.contentTintColor = .white
         button.widthAnchor.constraint(equalToConstant: 27).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 30).isActive = true
         button.setAccessibilityLabel(accessibilityLabel)
         return button
     }
 
     private func makeForceKillButton(pid: pid_t, processName: String) -> NSButton {
-        let image = NSImage(
-            systemSymbolName: "power",
-            accessibilityDescription: "Force quit \(processName)"
-        )
-        image?.isTemplate = true
-
+        let image = redPowerImage(accessibilityLabel: "Force quit \(processName)")
         let button = NSButton(
-            image: image ?? NSImage(size: NSSize(width: 14, height: 14)),
+            image: image,
             target: self,
             action: #selector(forceKillPressed(_:))
         )
@@ -846,10 +871,31 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         button.imageScaling = .scaleProportionallyDown
         button.isBordered = false
         button.bezelStyle = .inline
-        button.contentTintColor = .systemRed
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 30).isActive = true
         button.setAccessibilityLabel("Force quit \(processName)")
         return button
+    }
+
+    private func redPowerImage(accessibilityLabel: String) -> NSImage {
+        let size = NSSize(width: 15, height: 15)
+        guard let symbol = NSImage(
+            systemSymbolName: "power",
+            accessibilityDescription: accessibilityLabel
+        ) else {
+            return NSImage(size: size)
+        }
+        symbol.size = size
+        symbol.isTemplate = false
+
+        let result = NSImage(size: size, flipped: false) { rect in
+            symbol.draw(in: rect)
+            NSColor.systemRed.setFill()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        result.isTemplate = false
+        return result
     }
 
     @objc private func quitPressed(_ sender: NSButton) {
@@ -858,6 +904,56 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
 
     @objc private func forceKillPressed(_ sender: NSButton) {
         onForceKill?(pid_t(sender.tag))
+    }
+}
+
+@MainActor
+private final class ProcessRowView: NSStackView {
+    let pid: pid_t
+
+    private let iconView = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+
+    init(entry: ProcessEntry, icon: NSImage, quitButton: NSButton, forceButton: NSButton) {
+        pid = entry.pid
+        super.init(frame: .zero)
+
+        iconView.image = icon
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        iconView.heightAnchor.constraint(equalToConstant: 18).isActive = true
+
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .white
+        label.lineBreakMode = .byTruncatingTail
+        label.alignment = .left
+        label.widthAnchor.constraint(equalToConstant: 112).isActive = true
+
+        let actions = NSStackView(views: [quitButton, forceButton])
+        actions.orientation = .horizontal
+        actions.alignment = .centerY
+        actions.spacing = 2
+
+        orientation = .horizontal
+        alignment = .centerY
+        spacing = 4
+        edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        heightAnchor.constraint(equalToConstant: 30).isActive = true
+
+        addArrangedSubview(iconView)
+        addArrangedSubview(label)
+        addArrangedSubview(actions)
+        update(entry: entry)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(entry: ProcessEntry) {
+        let shortName = String(entry.name.prefix(18))
+        label.stringValue = String(format: "%@ %.0f%%", shortName, entry.cpu)
+        label.toolTip = "PID \(entry.pid) — \(entry.name)"
     }
 }
 
