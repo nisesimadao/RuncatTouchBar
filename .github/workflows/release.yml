@@ -138,8 +138,34 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish Release
+      - name: Locate curated release notes
+        id: release_notes
         if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          NOTES_FILE="docs/RELEASE_NOTES_${GITHUB_REF_NAME}.md"
+          if [[ -f "$NOTES_FILE" ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+            echo "Using curated release notes: $NOTES_FILE"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No curated notes found for ${GITHUB_REF_NAME}; GitHub-generated notes will be used."
+          fi
+
+      - name: Publish Release with curated notes
+        if: startsWith(github.ref, 'refs/tags/') && steps.release_notes.outputs.found == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: RuncatTouchBar ${{ github.ref_name }}
+          body_path: ${{ steps.release_notes.outputs.path }}
+          files: |
+            RuncatTouchBar.zip
+            RuncatTouchBar.zip.sha256
+          fail_on_unmatched_files: true
+
+      - name: Publish Release with generated notes
+        if: startsWith(github.ref, 'refs/tags/') && steps.release_notes.outputs.found != 'true'
         uses: softprops/action-gh-release@v2
         with:
           name: RuncatTouchBar ${{ github.ref_name }}
