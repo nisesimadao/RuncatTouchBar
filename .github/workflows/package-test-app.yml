@@ -1,0 +1,45 @@
+name: Package test app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/package-test-app.yml'
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: "/Applications/Xcode_26.5.0.app/Contents/Developer"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build unsigned app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project RunCatNeo.xcodeproj \
+            -scheme RunCatNeo \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package app
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp -R DerivedData/Build/Products/Debug/RunCatNeo.app dist/RuncatTouchBar.app
+          ditto -c -k --sequesterRsrc --keepParent dist/RuncatTouchBar.app RuncatTouchBar-test.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: RuncatTouchBar-test
+          path: RuncatTouchBar-test.zip
+          if-no-files-found: error
+          retention-days: 7
