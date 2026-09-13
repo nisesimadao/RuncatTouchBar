@@ -45,9 +45,9 @@ jobs:
       - name: Package
         run: |
           set -euo pipefail
-          APP="build/Build/Products/Release/RunCatNeo.app"
+          APP="build/Build/Products/Release/RunCat Touch Bar.app"
           if [ ! -d "$APP" ]; then
-            echo "::error::RunCatNeo.app not found at $APP"
+            echo "::error::RunCat Touch Bar.app not found at $APP"
             exit 1
           fi
 
