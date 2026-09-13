@@ -16,6 +16,9 @@
  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  See the License for the specific language governing permissions and
  limitations under the License.
+
+ Modified for RuncatTouchBar: expose the shared dependency container so the
+ Touch Bar bridge can subscribe to the same runner and metrics streams.
  */
 
 import DataSource
@@ -36,7 +39,7 @@ public struct AppDependencies: Sendable {
     public var userDefaultsClient = UserDefaultsClient.liveValue
     public var uuidClient = UUIDClient.liveValue
 
-    static let shared = AppDependencies()
+    public static let shared = AppDependencies()
 }
 
 extension EnvironmentValues {
