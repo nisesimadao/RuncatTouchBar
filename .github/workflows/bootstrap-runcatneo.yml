@@ -26,7 +26,10 @@ jobs:
           set -euo pipefail
           temp_dir="$(mktemp -d)"
           git clone --depth 1 https://github.com/runcat-dev/RunCatNeo.git "$temp_dir/RunCatNeo"
-          rsync -a --exclude='.git/' "$temp_dir/RunCatNeo/" ./
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='.github/workflows/' \
+            "$temp_dir/RunCatNeo/" ./
           rm -f .github/workflows/bootstrap-runcatneo.yml
 
       - name: Commit imported source
