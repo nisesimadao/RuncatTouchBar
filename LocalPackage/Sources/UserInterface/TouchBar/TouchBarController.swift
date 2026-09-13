@@ -2,7 +2,9 @@
  TouchBarController.swift
  RuncatTouchBar
 
- RunCat in the Control Strip + a compact live Activity Monitor.
+ A tiny Activity Monitor for the Touch Bar: the selected RunCat runner lives in
+ the Control Strip, follows the existing CPU-driven animation speed, and opens
+ an expanded CPU/RAM/battery/process view when tapped.
  */
 
 import AppKit
@@ -20,7 +22,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         static let close = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.close")
         static let cpu = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.cpu")
         static let ram = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.ram")
-        static let refresh = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.refresh")
+        static let battery = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.battery")
         static let processes = NSTouchBarItem.Identifier("dev.nisesimadao.RuncatTouchBar.processes")
     }
 
@@ -34,7 +36,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     private var trayButton: NSButton?
     private var animationTimer: Timer?
     private var trayPresenceTimer: Timer?
-    private var expandedRefreshTimer: Timer?
+    private var liveRefreshTimer: Timer?
     private var streamTasks = [Task<Void, Never>]()
     private var processRefreshTask: Task<Void, Never>?
 
@@ -46,10 +48,12 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     private var ramUsedBytes = 0.0
     private var ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
     private var ramFraction = 0.0
+    private var batterySnapshot = BatterySnapshot.unavailable
     private var topProcesses = [ProcessEntry]()
 
     private weak var cpuLabel: NSTextField?
     private weak var ramView: RAMUsageView?
+    private weak var batteryView: BatteryUsageView?
     private weak var processItem: ProcessScrollTouchBarItem?
 
     private lazy var expandedTouchBar: NSTouchBar = {
@@ -59,7 +63,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             ItemID.close,
             ItemID.cpu,
             ItemID.ram,
-            ItemID.refresh,
+            ItemID.battery,
             ItemID.processes,
         ]
         return touchBar
@@ -117,8 +121,8 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         animationTimer = nil
         trayPresenceTimer?.invalidate()
         trayPresenceTimer = nil
-        expandedRefreshTimer?.invalidate()
-        expandedRefreshTimer = nil
+        liveRefreshTimer?.invalidate()
+        liveRefreshTimer = nil
         processRefreshTask?.cancel()
         processRefreshTask = nil
         streamTasks.forEach { $0.cancel() }
@@ -148,7 +152,8 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
                 target: self,
                 action: #selector(closeExpandedTouchBar)
             )
-            configureBorderlessIconButton(button, width: 30)
+            configureInlineIconButton(button)
+            button.widthAnchor.constraint(equalToConstant: 30).isActive = true
             button.setAccessibilityLabel("Close RunCat system monitor")
             item.view = button
             return item
@@ -157,7 +162,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         if identifier == ItemID.cpu {
             let item = NSCustomTouchBarItem(identifier: identifier)
             let label = statusLabel(cpuText)
-            label.widthAnchor.constraint(equalToConstant: 62).isActive = true
+            label.widthAnchor.constraint(equalToConstant: 58).isActive = true
             cpuLabel = label
             item.view = label
             return item
@@ -176,21 +181,12 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             return item
         }
 
-        if identifier == ItemID.refresh {
+        if identifier == ItemID.battery {
             let item = NSCustomTouchBarItem(identifier: identifier)
-            let image = NSImage(
-                systemSymbolName: "arrow.clockwise",
-                accessibilityDescription: "Refresh"
-            )
-            image?.isTemplate = true
-            let button = NSButton(
-                image: image ?? NSImage(size: NSSize(width: 16, height: 16)),
-                target: self,
-                action: #selector(refreshProcessesButtonPressed)
-            )
-            configureBorderlessIconButton(button, width: 28)
-            button.setAccessibilityLabel("Refresh now")
-            item.view = button
+            let view = BatteryUsageView()
+            view.update(snapshot: batterySnapshot)
+            batteryView = view
+            item.view = view
             return item
         }
 
@@ -210,14 +206,13 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         return nil
     }
 
-    private func configureBorderlessIconButton(_ button: NSButton, width: CGFloat) {
+    private func configureInlineIconButton(_ button: NSButton) {
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleProportionallyDown
         button.imageHugsTitle = true
         button.isBordered = false
         button.bezelStyle = .inline
         button.contentTintColor = .white
-        button.widthAnchor.constraint(equalToConstant: width).isActive = true
     }
 
     private func applyInitialState() {
@@ -301,14 +296,17 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             cpuText = String(format: "CPU %.0f%%", cpu.percentage.value)
         }
         if let memory = metrics.systemInfoBundle.memoryInfo {
-            applyMemory(
-                app: memory.app.byteCount,
-                wired: memory.wired.byteCount,
-                compressed: memory.compressed.byteCount,
-                percentage: memory.percentage.value
-            )
+            ramUsedBytes = memory.app.byteCount + memory.wired.byteCount + memory.compressed.byteCount
+            ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
+            ramFraction = min(1.0, max(0.0, memory.percentage.value / 100.0))
         }
-        updateMetricViews()
+
+        cpuLabel?.stringValue = cpuText
+        ramView?.update(
+            usedBytes: ramUsedBytes,
+            totalBytes: ramTotalBytes,
+            fraction: ramFraction
+        )
     }
 
     private func refreshMetricsFromObserver() {
@@ -317,28 +315,10 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             cpuText = String(format: "CPU %.0f%%", cpu.percentage.value)
         }
         if let memory = info.memoryInfo {
-            applyMemory(
-                app: memory.app.byteCount,
-                wired: memory.wired.byteCount,
-                compressed: memory.compressed.byteCount,
-                percentage: memory.percentage.value
-            )
+            ramUsedBytes = memory.app.byteCount + memory.wired.byteCount + memory.compressed.byteCount
+            ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
+            ramFraction = min(1.0, max(0.0, memory.percentage.value / 100.0))
         }
-        updateMetricViews()
-    }
-
-    private func applyMemory(
-        app: Double,
-        wired: Double,
-        compressed: Double,
-        percentage: Double
-    ) {
-        ramUsedBytes = app + wired + compressed
-        ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
-        ramFraction = min(1.0, max(0.0, percentage / 100.0))
-    }
-
-    private func updateMetricViews() {
         cpuLabel?.stringValue = cpuText
         ramView?.update(
             usedBytes: ramUsedBytes,
@@ -373,20 +353,22 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         )
     }
 
-    private func startExpandedRefreshTimer() {
-        expandedRefreshTimer?.invalidate()
-        expandedRefreshTimer = Timer.scheduledTimer(
+    private func startLiveRefresh() {
+        liveRefreshTimer?.invalidate()
+        liveRefreshTimer = Timer.scheduledTimer(
             timeInterval: 1.0,
             target: self,
-            selector: #selector(refreshExpandedContent),
+            selector: #selector(liveRefreshTick),
             userInfo: nil,
             repeats: true
         )
     }
 
-    private func stopExpandedRefreshTimer() {
-        expandedRefreshTimer?.invalidate()
-        expandedRefreshTimer = nil
+    private func stopLiveRefresh() {
+        liveRefreshTimer?.invalidate()
+        liveRefreshTimer = nil
+        processRefreshTask?.cancel()
+        processRefreshTask = nil
     }
 
     @objc private func advanceFrame() {
@@ -399,10 +381,10 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         ensureTrayPresence()
     }
 
-    @objc private func refreshExpandedContent() {
+    @objc private func liveRefreshTick() {
         guard isExpanded else { return }
         refreshMetricsFromObserver()
-        refreshProcesses()
+        refreshProcessesAndBattery()
     }
 
     private func ensureTrayPresence() {
@@ -413,22 +395,17 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     @objc private func showExpandedTouchBar() {
         isExpanded = true
         refreshMetricsFromObserver()
-        refreshProcesses()
-        startExpandedRefreshTimer()
+        refreshProcessesAndBattery()
+        startLiveRefresh()
         _ = privateAPI.present(expandedTouchBar, from: ItemID.tray)
         ensureTrayPresence()
     }
 
     @objc private func closeExpandedTouchBar() {
         isExpanded = false
-        stopExpandedRefreshTimer()
+        stopLiveRefresh()
         privateAPI.minimize(expandedTouchBar)
         ensureTrayPresence()
-    }
-
-    @objc private func refreshProcessesButtonPressed() {
-        refreshMetricsFromObserver()
-        refreshProcesses()
     }
 
     private func quitProcess(pid: pid_t) {
@@ -447,25 +424,31 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
-            self?.refreshProcesses()
+            self?.refreshProcessesAndBattery()
         }
     }
 
-    private func refreshProcesses() {
+    private func refreshProcessesAndBattery() {
         processRefreshTask?.cancel()
         processRefreshTask = Task { [weak self] in
-            let entries = await Task.detached(priority: .utility) {
-                ProcessSampler.topProcesses(limit: 16)
+            let snapshot = await Task.detached(priority: .utility) {
+                (
+                    ProcessSampler.topProcesses(limit: 16),
+                    BatterySampler.snapshot()
+                )
             }.value
+
             guard !Task.isCancelled, let self else { return }
-            self.topProcesses = entries
-            self.processItem?.update(entries: entries)
+            self.topProcesses = snapshot.0
+            self.batterySnapshot = snapshot.1
+            self.processItem?.update(entries: snapshot.0)
+            self.batteryView?.update(snapshot: snapshot.1)
         }
     }
 
     private func statusLabel(_ text: String) -> NSTextField {
         let label = NSTextField(labelWithString: text)
-        label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        label.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         label.textColor = .white
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
@@ -521,12 +504,47 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
 }
 
 @MainActor
-private final class RAMUsageView: NSView {
-    private let label = NSTextField(labelWithString: "RAM --/--GB")
-    private let progress = NSProgressIndicator()
+private final class UsageBarView: NSView {
+    var fraction: Double = 0 {
+        didSet { needsDisplay = true }
+    }
+
+    var fillColor: NSColor = .systemGreen {
+        didSet { needsDisplay = true }
+    }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 145, height: 30)
+        NSSize(width: 58, height: 7)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        guard rect.width > 0, rect.height > 0 else { return }
+
+        let radius = rect.height / 2
+        let track = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        NSColor.white.withAlphaComponent(0.18).setFill()
+        track.fill()
+
+        let fillWidth = max(0, rect.width * fraction)
+        guard fillWidth > 0.5 else { return }
+
+        let fillRect = NSRect(x: rect.minX, y: rect.minY, width: fillWidth, height: rect.height)
+        let fill = NSBezierPath(roundedRect: fillRect, xRadius: radius, yRadius: radius)
+        fillColor.setFill()
+        fill.fill()
+    }
+}
+
+@MainActor
+private final class RAMUsageView: NSView {
+    private let label = NSTextField(labelWithString: "RAM --/--G")
+    private let bar = UsageBarView()
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 125, height: 30)
     }
 
     override init(frame frameRect: NSRect) {
@@ -535,7 +553,7 @@ private final class RAMUsageView: NSView {
     }
 
     convenience init() {
-        self.init(frame: NSRect(x: 0, y: 0, width: 145, height: 30))
+        self.init(frame: NSRect(x: 0, y: 0, width: 125, height: 30))
     }
 
     required init?(coder: NSCoder) {
@@ -544,31 +562,24 @@ private final class RAMUsageView: NSView {
     }
 
     private func configure() {
-        label.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        label.font = .monospacedDigitSystemFont(ofSize: 10.5, weight: .medium)
         label.textColor = .white
         label.alignment = .right
         label.lineBreakMode = .byClipping
 
-        progress.style = .bar
-        progress.controlSize = .small
-        progress.isIndeterminate = false
-        progress.minValue = 0
-        progress.maxValue = 1
-        progress.doubleValue = 0
-
-        let stack = NSStackView(views: [label, progress])
+        let stack = NSStackView(views: [label, bar])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
-        progress.widthAnchor.constraint(equalToConstant: 44).isActive = true
-        progress.heightAnchor.constraint(equalToConstant: 6).isActive = true
+        bar.widthAnchor.constraint(equalToConstant: 45).isActive = true
+        bar.heightAnchor.constraint(equalToConstant: 7).isActive = true
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -576,16 +587,98 @@ private final class RAMUsageView: NSView {
     func update(usedBytes: Double, totalBytes: Double, fraction: Double) {
         let gib = 1_073_741_824.0
         guard totalBytes > 0 else {
-            label.stringValue = "RAM --/--GB"
-            progress.doubleValue = 0
+            label.stringValue = "RAM --/--G"
+            bar.fraction = 0
             return
         }
+
         label.stringValue = String(
-            format: "RAM %.1f/%.1f",
+            format: "RAM %.1f/%.1fG",
             usedBytes / gib,
             totalBytes / gib
         )
-        progress.doubleValue = min(1, max(0, fraction))
+        bar.fraction = fraction
+        bar.fillColor = UsagePalette.color(for: fraction)
+    }
+}
+
+@MainActor
+private final class BatteryUsageView: NSView {
+    private let label = NSTextField(labelWithString: "BAT --%")
+    private let bar = UsageBarView()
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 95, height: 30)
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configure()
+    }
+
+    convenience init() {
+        self.init(frame: NSRect(x: 0, y: 0, width: 95, height: 30))
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    private func configure() {
+        label.font = .monospacedDigitSystemFont(ofSize: 10.5, weight: .medium)
+        label.textColor = .white
+        label.alignment = .right
+        label.lineBreakMode = .byClipping
+
+        let stack = NSStackView(views: [label, bar])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        bar.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        bar.heightAnchor.constraint(equalToConstant: 7).isActive = true
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    func update(snapshot: BatterySnapshot) {
+        guard snapshot.isAvailable else {
+            label.stringValue = "BAT --%"
+            bar.fraction = 0
+            bar.fillColor = .secondaryLabelColor
+            return
+        }
+
+        label.stringValue = snapshot.isCharging
+            ? String(format: "BAT %.0f%%⚡", snapshot.fraction * 100)
+            : String(format: "BAT %.0f%%", snapshot.fraction * 100)
+
+        bar.fraction = snapshot.fraction
+        if snapshot.isCharging {
+            bar.fillColor = .systemGreen
+        } else if snapshot.fraction <= 0.2 {
+            bar.fillColor = .systemRed
+        } else if snapshot.fraction <= 0.4 {
+            bar.fillColor = .systemOrange
+        } else {
+            bar.fillColor = .systemGreen
+        }
+    }
+}
+
+@MainActor
+private enum UsagePalette {
+    static func color(for fraction: Double) -> NSColor {
+        if fraction >= 0.90 { return .systemRed }
+        if fraction >= 0.75 { return .systemOrange }
+        return .systemGreen
     }
 }
 
@@ -606,7 +699,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         scrollView.horizontalScrollElasticity = .allowed
         scrollView.verticalScrollElasticity = .none
         scrollView.scrollerStyle = .overlay
-        scrollView.widthAnchor.constraint(equalToConstant: 520).isActive = true
+        scrollView.widthAnchor.constraint(equalToConstant: 460).isActive = true
         scrollView.heightAnchor.constraint(equalToConstant: 30).isActive = true
         view = scrollView
 
@@ -618,7 +711,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
     }
 
     func update(entries: [ProcessEntry]) {
-        let oldX = scrollView.contentView.bounds.origin.x
+        let visibleOrigin = scrollView.documentVisibleRect.origin
         let views: [NSView]
 
         if entries.isEmpty {
@@ -627,32 +720,39 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
             empty.textColor = .secondaryLabelColor
             views = [empty]
         } else {
-            views = entries.map(makeProcessView)
+            views = entries.map { entry in
+                makeProcessView(entry: entry)
+            }
         }
 
         let stack = NSStackView(views: views)
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 3, bottom: 0, right: 8)
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 3, bottom: 0, right: 10)
+        stack.layoutSubtreeIfNeeded()
 
         let fitting = stack.fittingSize
-        stack.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: max(fitting.width, 520),
-            height: 30
-        )
+        let contentWidth = max(scrollView.bounds.width, fitting.width)
+        let contentHeight = max(30, fitting.height)
+        stack.frame = NSRect(x: 0, y: 0, width: contentWidth, height: contentHeight)
         scrollView.documentView = stack
         scrollView.layoutSubtreeIfNeeded()
 
-        let maxX = max(0, stack.frame.width - scrollView.contentSize.width)
-        scrollView.contentView.scroll(to: NSPoint(x: min(oldX, maxX), y: 0))
+        let maxX = max(0, contentWidth - scrollView.documentVisibleRect.width)
+        let restoredX = min(max(0, visibleOrigin.x), maxX)
+        scrollView.contentView.scroll(to: NSPoint(x: restoredX, y: 0))
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     private func makeProcessView(entry: ProcessEntry) -> NSView {
-        let shortName = String(entry.name.prefix(18))
+        let icon = NSImageView()
+        icon.image = processIcon(for: entry)
+        icon.imageScaling = .scaleProportionallyDown
+        icon.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 18).isActive = true
+
+        let shortName = String(entry.name.prefix(20))
         let label = NSTextField(
             labelWithString: String(format: "%@ %.0f%%", shortName, entry.cpu)
         )
@@ -660,65 +760,97 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         label.textColor = .white
         label.lineBreakMode = .byTruncatingTail
         label.toolTip = "PID \(entry.pid) — \(entry.name)"
-        label.widthAnchor.constraint(lessThanOrEqualToConstant: 110).isActive = true
+        label.widthAnchor.constraint(lessThanOrEqualToConstant: 125).isActive = true
 
-        let quitImage = NSImage(
-            systemSymbolName: "rectangle.portrait.and.arrow.right",
-            accessibilityDescription: "Quit"
-        )
-        quitImage?.isTemplate = true
-        let quit = NSButton(
-            image: quitImage ?? NSImage(size: NSSize(width: 15, height: 15)),
-            target: self,
+        let quit = makeIconButton(
+            symbolName: "rectangle.portrait.and.arrow.forward",
+            accessibilityLabel: "Quit \(entry.name)",
             action: #selector(quitPressed(_:))
         )
         quit.tag = Int(entry.pid)
-        configurePlainActionButton(quit)
-        quit.setAccessibilityLabel("Quit \(entry.name)")
 
-        let killImage = NSImage(
-            systemSymbolName: "power",
-            accessibilityDescription: "Force quit"
-        )
-        killImage?.isTemplate = true
-        let kill = NSButton(
-            image: killImage ?? NSImage(size: NSSize(width: 15, height: 15)),
-            target: self,
-            action: #selector(forceKillPressed(_:))
-        )
-        kill.tag = Int(entry.pid)
-        kill.imagePosition = .imageOnly
-        kill.imageScaling = .scaleProportionallyDown
-        kill.imageHugsTitle = true
-        kill.isBordered = true
-        kill.bezelStyle = .rounded
-        kill.bezelColor = .systemRed
-        kill.contentTintColor = .white
-        kill.controlSize = .small
-        kill.widthAnchor.constraint(equalToConstant: 28).isActive = true
-        kill.setAccessibilityLabel("Force quit \(entry.name)")
+        let force = makeForceKillButton(pid: entry.pid, processName: entry.name)
 
-        let actions = NSStackView(views: [quit, kill])
+        let actions = NSStackView(views: [quit, force])
         actions.orientation = .horizontal
         actions.alignment = .centerY
         actions.spacing = 2
 
-        let pair = NSStackView(views: [label, actions])
+        let pair = NSStackView(views: [icon, label, actions])
         pair.orientation = .horizontal
         pair.alignment = .centerY
         pair.spacing = 4
         return pair
     }
 
-    private func configurePlainActionButton(_ button: NSButton) {
+    private func processIcon(for entry: ProcessEntry) -> NSImage {
+        if let image = NSRunningApplication(processIdentifier: entry.pid)?.icon?.copy() as? NSImage {
+            image.size = NSSize(width: 18, height: 18)
+            return image
+        }
+
+        if !entry.commandPath.isEmpty {
+            let image = NSWorkspace.shared.icon(forFile: entry.commandPath)
+            image.size = NSSize(width: 18, height: 18)
+            return image
+        }
+
+        let fallback = NSImage(
+            systemSymbolName: "app.fill",
+            accessibilityDescription: entry.name
+        ) ?? NSImage(size: NSSize(width: 18, height: 18))
+        fallback.size = NSSize(width: 18, height: 18)
+        return fallback
+    }
+
+    private func makeIconButton(
+        symbolName: String,
+        accessibilityLabel: String,
+        action: Selector
+    ) -> NSButton {
+        let image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: accessibilityLabel
+        )
+        image?.isTemplate = true
+
+        let button = NSButton(
+            image: image ?? NSImage(size: NSSize(width: 15, height: 15)),
+            target: self,
+            action: action
+        )
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleProportionallyDown
-        button.imageHugsTitle = true
         button.isBordered = false
         button.bezelStyle = .inline
         button.contentTintColor = .white
-        button.controlSize = .small
+        button.widthAnchor.constraint(equalToConstant: 27).isActive = true
+        button.setAccessibilityLabel(accessibilityLabel)
+        return button
+    }
+
+    private func makeForceKillButton(pid: pid_t, processName: String) -> NSButton {
+        let image = NSImage(
+            systemSymbolName: "power",
+            accessibilityDescription: "Force quit \(processName)"
+        )
+        image?.isTemplate = true
+
+        let button = NSButton(
+            image: image ?? NSImage(size: NSSize(width: 14, height: 14)),
+            target: self,
+            action: #selector(forceKillPressed(_:))
+        )
+        button.tag = Int(pid)
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.isBordered = true
+        button.bezelStyle = .rounded
+        button.bezelColor = .systemRed
+        button.contentTintColor = .white
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        button.setAccessibilityLabel("Force quit \(processName)")
+        return button
     }
 
     @objc private func quitPressed(_ sender: NSButton) {
@@ -734,6 +866,19 @@ private struct ProcessEntry: Sendable {
     let pid: pid_t
     let cpu: Double
     let name: String
+    let commandPath: String
+}
+
+private struct BatterySnapshot: Sendable {
+    let isAvailable: Bool
+    let fraction: Double
+    let isCharging: Bool
+
+    static let unavailable = BatterySnapshot(
+        isAvailable: false,
+        fraction: 0,
+        isCharging: false
+    )
 }
 
 private enum ProcessSampler {
@@ -777,10 +922,18 @@ private enum ProcessSampler {
                 continue
             }
 
-            let command = String(fields[3])
-            let name = URL(fileURLWithPath: command).lastPathComponent
+            let commandPath = String(fields[3])
+            let name = URL(fileURLWithPath: commandPath).lastPathComponent
             guard !name.isEmpty else { continue }
-            entries.append(ProcessEntry(pid: pid, cpu: cpu, name: name))
+
+            entries.append(
+                ProcessEntry(
+                    pid: pid,
+                    cpu: cpu,
+                    name: name,
+                    commandPath: commandPath
+                )
+            )
         }
 
         return entries.sorted { lhs, rhs in
@@ -799,5 +952,56 @@ private enum ProcessSampler {
     nonisolated static func forceTerminate(pid: pid_t) -> Bool {
         guard pid > 1, pid != getpid() else { return false }
         return kill(pid, SIGKILL) == 0
+    }
+}
+
+private enum BatterySampler {
+    nonisolated static func snapshot() -> BatterySnapshot {
+        let task = Foundation.Process()
+        let output = Pipe()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        task.arguments = ["-g", "batt"]
+        task.standardOutput = output
+        task.standardError = FileHandle.nullDevice
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+        } catch {
+            return .unavailable
+        }
+        guard task.terminationStatus == 0 else { return .unavailable }
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8) else {
+            return .unavailable
+        }
+
+        guard let percentIndex = text.firstIndex(of: "%") else {
+            return .unavailable
+        }
+
+        var start = percentIndex
+        while start > text.startIndex {
+            let previous = text.index(before: start)
+            guard text[previous].isNumber else { break }
+            start = previous
+        }
+
+        guard start < percentIndex,
+              let percent = Double(text[start..<percentIndex]) else {
+            return .unavailable
+        }
+
+        let lower = text.lowercased()
+        let charging = lower.contains("charging")
+            || lower.contains("charged")
+            || lower.contains("ac attached")
+
+        return BatterySnapshot(
+            isAvailable: true,
+            fraction: min(1, max(0, percent / 100)),
+            isCharging: charging
+        )
     }
 }
