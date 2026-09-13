@@ -107,6 +107,24 @@ final class TouchBarPrivateAPI {
         return false
     }
 
+    func minimize(_ touchBar: NSTouchBar) {
+        let selectors = [
+            NSSelectorFromString("minimizeSystemModalTouchBar:"),
+            NSSelectorFromString("minimizeSystemModalFunctionBar:"),
+        ]
+        for selector in selectors {
+            guard let method = class_getClassMethod(NSTouchBar.self, selector) else { continue }
+            typealias Function = @convention(c) (AnyObject, Selector, NSTouchBar) -> Void
+            let function = unsafeBitCast(method_getImplementation(method), to: Function.self)
+            function(NSTouchBar.self as AnyObject, selector, touchBar)
+            return
+        }
+
+        // Older systems may not expose the minimize selector. Dismiss as a last
+        // resort; callers re-assert Control Strip presence afterwards.
+        dismiss(touchBar)
+    }
+
     func dismiss(_ touchBar: NSTouchBar) {
         let selectors = [
             NSSelectorFromString("dismissSystemModalTouchBar:"),
