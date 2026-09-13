@@ -26,8 +26,9 @@ _No user-facing changes yet._
 
 ### Validated
 - arm64 Release build and ZIP packaging succeed in GitHub Actions.
-- Physical Touch Bar Control Strip integration renders successfully on a real Touch Bar Mac.
-- Expanded monitor, process scrolling, application icons, CPU percentages, quit controls, and the red force-quit icon were visually verified on hardware.
+- Physical Touch Bar Control Strip integration works on a real Touch Bar Mac while preserving Apple's controls.
+- CPU-driven runner animation, repeated open/close, shared metric visibility, refresh interval changes, horizontal scrolling/ranking refresh, normal Quit, Force Quit, Activity Monitor shortcut, modal minimize/return, and sleep/wake recovery were tested successfully on hardware.
+- Long process names truncate without hiding CPU percentages, and the force-quit control remains visually distinct in red.
 
 ## Release history
 
