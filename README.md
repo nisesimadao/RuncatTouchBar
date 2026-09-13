@@ -7,8 +7,8 @@ RunCat, right where your fingers already are.
 [![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](#requirements)
 
 <p align="center">
-  <a href="docs/assets/touchbar-overview.webp">
-    <img src="docs/assets/touchbar-overview.webp" alt="RuncatTouchBar running in the macOS Control Strip" width="1200" />
+  <a href="docs/assets/touchbar-overview-v2.webp">
+    <img src="docs/assets/touchbar-overview-v2.webp" alt="RuncatTouchBar running in the macOS Control Strip" width="1200" />
   </a>
 </p>
 
@@ -33,8 +33,8 @@ Tap the runner to expand a compact system monitor directly on the Touch Bar.
 ## Touch Bar monitor
 
 <p align="center">
-  <a href="docs/assets/expanded-monitor.webp">
-    <img src="docs/assets/expanded-monitor.webp" alt="Expanded RuncatTouchBar system monitor" width="1200" />
+  <a href="docs/assets/expanded-monitor-v2.webp">
+    <img src="docs/assets/expanded-monitor-v2.webp" alt="Expanded RuncatTouchBar system monitor" width="1200" />
   </a>
 </p>
 
