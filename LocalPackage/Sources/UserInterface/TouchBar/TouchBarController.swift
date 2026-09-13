@@ -2,9 +2,7 @@
  TouchBarController.swift
  RuncatTouchBar
 
- A tiny Activity Monitor for the Touch Bar: the selected RunCat runner lives in
- the Control Strip, follows the existing CPU-driven animation speed, and opens
- an expanded CPU/RAM/process view when tapped.
+ RunCat in the Control Strip + a compact live Activity Monitor.
  */
 
 import AppKit
@@ -27,13 +25,16 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     }
 
     private let appStateClient = AppDependencies.shared.appStateClient
+    private let systemInfoObserverClient = AppDependencies.shared.systemInfoObserverClient
     private let privateAPI = TouchBarPrivateAPI.shared
 
     private var isStarted = false
+    private var isExpanded = false
     private var trayItem: NSCustomTouchBarItem?
     private var trayButton: NSButton?
     private var animationTimer: Timer?
     private var trayPresenceTimer: Timer?
+    private var expandedRefreshTimer: Timer?
     private var streamTasks = [Task<Void, Never>]()
     private var processRefreshTask: Task<Void, Never>?
 
@@ -93,7 +94,6 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         trayItem = item
         trayButton = button
 
-        // We draw our own MTMR-style close control at the left of the expanded bar.
         privateAPI.setSystemModalCloseBoxVisible(false)
         guard privateAPI.addSystemTrayItem(item) else {
             trayItem = nil
@@ -101,9 +101,9 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             isStarted = false
             return
         }
+
         ensureTrayPresence()
         startTrayPresenceWatchdog()
-
         applyInitialState()
         subscribeToRunCatState()
     }
@@ -111,11 +111,14 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
     public func stop() {
         guard isStarted else { return }
         isStarted = false
+        isExpanded = false
 
         animationTimer?.invalidate()
         animationTimer = nil
         trayPresenceTimer?.invalidate()
         trayPresenceTimer = nil
+        expandedRefreshTimer?.invalidate()
+        expandedRefreshTimer = nil
         processRefreshTask?.cancel()
         processRefreshTask = nil
         streamTasks.forEach { $0.cancel() }
@@ -145,13 +148,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
                 target: self,
                 action: #selector(closeExpandedTouchBar)
             )
-            button.imagePosition = .imageOnly
-            button.imageScaling = .scaleProportionallyDown
-            button.imageHugsTitle = true
-            button.isBordered = false
-            button.bezelStyle = .inline
-            button.contentTintColor = .white
-            button.widthAnchor.constraint(equalToConstant: 30).isActive = true
+            configureBorderlessIconButton(button, width: 30)
             button.setAccessibilityLabel("Close RunCat system monitor")
             item.view = button
             return item
@@ -160,7 +157,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         if identifier == ItemID.cpu {
             let item = NSCustomTouchBarItem(identifier: identifier)
             let label = statusLabel(cpuText)
-            label.widthAnchor.constraint(equalToConstant: 70).isActive = true
+            label.widthAnchor.constraint(equalToConstant: 62).isActive = true
             cpuLabel = label
             item.view = label
             return item
@@ -183,7 +180,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             let item = NSCustomTouchBarItem(identifier: identifier)
             let image = NSImage(
                 systemSymbolName: "arrow.clockwise",
-                accessibilityDescription: "Refresh processes"
+                accessibilityDescription: "Refresh"
             )
             image?.isTemplate = true
             let button = NSButton(
@@ -191,22 +188,19 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
                 target: self,
                 action: #selector(refreshProcessesButtonPressed)
             )
-            button.imagePosition = .imageOnly
-            button.imageScaling = .scaleProportionallyDown
-            button.imageHugsTitle = true
-            button.isBordered = false
-            button.bezelStyle = .inline
-            button.contentTintColor = .white
-            button.widthAnchor.constraint(equalToConstant: 30).isActive = true
-            button.setAccessibilityLabel("Refresh process list")
+            configureBorderlessIconButton(button, width: 28)
+            button.setAccessibilityLabel("Refresh now")
             item.view = button
             return item
         }
 
         if identifier == ItemID.processes {
             let item = ProcessScrollTouchBarItem(identifier: identifier)
-            item.onQuit = { [weak self] index in
-                self?.quitProcess(at: index)
+            item.onQuit = { [weak self] pid in
+                self?.quitProcess(pid: pid)
+            }
+            item.onForceKill = { [weak self] pid in
+                self?.forceKillProcess(pid: pid)
             }
             item.update(entries: topProcesses)
             processItem = item
@@ -214,6 +208,16 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         }
 
         return nil
+    }
+
+    private func configureBorderlessIconButton(_ button: NSButton, width: CGFloat) {
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.imageHugsTitle = true
+        button.isBordered = false
+        button.bezelStyle = .inline
+        button.contentTintColor = .white
+        button.widthAnchor.constraint(equalToConstant: width).isActive = true
     }
 
     private func applyInitialState() {
@@ -224,6 +228,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
                 state.metrics.latestValue
             )
         }
+
         if let bundle = initial.0 {
             applyRunner(bundle)
         } else {
@@ -296,10 +301,44 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             cpuText = String(format: "CPU %.0f%%", cpu.percentage.value)
         }
         if let memory = metrics.systemInfoBundle.memoryInfo {
-            ramUsedBytes = memory.app.byteCount + memory.wired.byteCount + memory.compressed.byteCount
-            ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
-            ramFraction = min(1.0, max(0.0, memory.percentage.value / 100.0))
+            applyMemory(
+                app: memory.app.byteCount,
+                wired: memory.wired.byteCount,
+                compressed: memory.compressed.byteCount,
+                percentage: memory.percentage.value
+            )
         }
+        updateMetricViews()
+    }
+
+    private func refreshMetricsFromObserver() {
+        let info = systemInfoObserverClient.currentSystemInfo()
+        if let cpu = info.cpuInfo {
+            cpuText = String(format: "CPU %.0f%%", cpu.percentage.value)
+        }
+        if let memory = info.memoryInfo {
+            applyMemory(
+                app: memory.app.byteCount,
+                wired: memory.wired.byteCount,
+                compressed: memory.compressed.byteCount,
+                percentage: memory.percentage.value
+            )
+        }
+        updateMetricViews()
+    }
+
+    private func applyMemory(
+        app: Double,
+        wired: Double,
+        compressed: Double,
+        percentage: Double
+    ) {
+        ramUsedBytes = app + wired + compressed
+        ramTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
+        ramFraction = min(1.0, max(0.0, percentage / 100.0))
+    }
+
+    private func updateMetricViews() {
         cpuLabel?.stringValue = cpuText
         ramView?.update(
             usedBytes: ramUsedBytes,
@@ -313,7 +352,6 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         animationTimer = nil
         guard runnerFrames.count > 1, isStarted else { return }
 
-        // RunCat Neo's RunnerLayer uses 0.5 s per frame at speed 1.0.
         let interval = max(0.025, 0.5 / Double(runnerSpeed))
         animationTimer = Timer.scheduledTimer(
             timeInterval: interval,
@@ -335,6 +373,22 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         )
     }
 
+    private func startExpandedRefreshTimer() {
+        expandedRefreshTimer?.invalidate()
+        expandedRefreshTimer = Timer.scheduledTimer(
+            timeInterval: 1.0,
+            target: self,
+            selector: #selector(refreshExpandedContent),
+            userInfo: nil,
+            repeats: true
+        )
+    }
+
+    private func stopExpandedRefreshTimer() {
+        expandedRefreshTimer?.invalidate()
+        expandedRefreshTimer = nil
+    }
+
     @objc private func advanceFrame() {
         guard !runnerFrames.isEmpty else { return }
         frameIndex = (frameIndex + 1) % runnerFrames.count
@@ -345,43 +399,63 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
         ensureTrayPresence()
     }
 
+    @objc private func refreshExpandedContent() {
+        guard isExpanded else { return }
+        refreshMetricsFromObserver()
+        refreshProcesses()
+    }
+
     private func ensureTrayPresence() {
         guard isStarted, trayItem != nil else { return }
         privateAPI.setControlStripPresence(ItemID.tray, visible: true)
     }
 
     @objc private func showExpandedTouchBar() {
+        isExpanded = true
+        refreshMetricsFromObserver()
         refreshProcesses()
+        startExpandedRefreshTimer()
         _ = privateAPI.present(expandedTouchBar, from: ItemID.tray)
-        // MTMR re-applies Control Strip presence after presenting its system modal.
-        // Doing the same also makes recovery robust across Touch Bar server quirks.
         ensureTrayPresence()
     }
 
     @objc private func closeExpandedTouchBar() {
-        // Minimize rather than dismiss: dismissing a modal associated with a system
-        // tray item can make the tray item disappear until the process restarts.
+        isExpanded = false
+        stopExpandedRefreshTimer()
         privateAPI.minimize(expandedTouchBar)
         ensureTrayPresence()
     }
 
     @objc private func refreshProcessesButtonPressed() {
+        refreshMetricsFromObserver()
         refreshProcesses()
     }
 
-    private func quitProcess(at index: Int) {
-        guard topProcesses.indices.contains(index) else { return }
-        let entry = topProcesses[index]
-        guard entry.pid > 1, entry.pid != getpid() else { return }
-        _ = ProcessSampler.terminate(pid: entry.pid)
-        refreshProcesses()
+    private func quitProcess(pid: pid_t) {
+        guard pid > 1, pid != getpid() else { return }
+        _ = ProcessSampler.terminate(pid: pid)
+        refreshProcessesSoon()
+    }
+
+    private func forceKillProcess(pid: pid_t) {
+        guard pid > 1, pid != getpid() else { return }
+        _ = ProcessSampler.forceTerminate(pid: pid)
+        refreshProcessesSoon()
+    }
+
+    private func refreshProcessesSoon() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            self?.refreshProcesses()
+        }
     }
 
     private func refreshProcesses() {
         processRefreshTask?.cancel()
         processRefreshTask = Task { [weak self] in
             let entries = await Task.detached(priority: .utility) {
-                ProcessSampler.topProcesses(limit: 12)
+                ProcessSampler.topProcesses(limit: 16)
             }.value
             guard !Task.isCancelled, let self else { return }
             self.topProcesses = entries
@@ -391,7 +465,7 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
 
     private func statusLabel(_ text: String) -> NSTextField {
         let label = NSTextField(labelWithString: text)
-        label.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         label.textColor = .white
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
@@ -417,9 +491,6 @@ public final class TouchBarController: NSObject, NSTouchBarDelegate {
             image.size = NSSize(width: width, height: targetHeight)
         }
 
-        // Menu-bar template artwork can look very dim inside the Control Strip.
-        // Rasterize template runners as bright white while preserving coloured
-        // custom runners exactly as supplied.
         if isTemplate {
             return whiteRasterizedImage(from: image)
         }
@@ -455,7 +526,7 @@ private final class RAMUsageView: NSView {
     private let progress = NSProgressIndicator()
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 170, height: 30)
+        NSSize(width: 145, height: 30)
     }
 
     override init(frame frameRect: NSRect) {
@@ -464,7 +535,7 @@ private final class RAMUsageView: NSView {
     }
 
     convenience init() {
-        self.init(frame: NSRect(x: 0, y: 0, width: 170, height: 30))
+        self.init(frame: NSRect(x: 0, y: 0, width: 145, height: 30))
     }
 
     required init?(coder: NSCoder) {
@@ -473,7 +544,7 @@ private final class RAMUsageView: NSView {
     }
 
     private func configure() {
-        label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        label.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
         label.textColor = .white
         label.alignment = .right
         label.lineBreakMode = .byClipping
@@ -488,16 +559,16 @@ private final class RAMUsageView: NSView {
         let stack = NSStackView(views: [label, progress])
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 7
+        stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
-        progress.widthAnchor.constraint(equalToConstant: 55).isActive = true
+        progress.widthAnchor.constraint(equalToConstant: 44).isActive = true
         progress.heightAnchor.constraint(equalToConstant: 6).isActive = true
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -510,7 +581,7 @@ private final class RAMUsageView: NSView {
             return
         }
         label.stringValue = String(
-            format: "RAM %.1f/%.1fGB",
+            format: "RAM %.1f/%.1f",
             usedBytes / gib,
             totalBytes / gib
         )
@@ -520,7 +591,8 @@ private final class RAMUsageView: NSView {
 
 @MainActor
 private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
-    var onQuit: ((Int) -> Void)?
+    var onQuit: ((pid_t) -> Void)?
+    var onForceKill: ((pid_t) -> Void)?
 
     private let scrollView = NSScrollView()
 
@@ -534,7 +606,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         scrollView.horizontalScrollElasticity = .allowed
         scrollView.verticalScrollElasticity = .none
         scrollView.scrollerStyle = .overlay
-        scrollView.widthAnchor.constraint(equalToConstant: 350).isActive = true
+        scrollView.widthAnchor.constraint(equalToConstant: 520).isActive = true
         scrollView.heightAnchor.constraint(equalToConstant: 30).isActive = true
         view = scrollView
 
@@ -546,7 +618,7 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
     }
 
     func update(entries: [ProcessEntry]) {
-        let visibleOrigin = scrollView.documentVisibleRect.origin
+        let oldX = scrollView.contentView.bounds.origin.x
         let views: [NSView]
 
         if entries.isEmpty {
@@ -555,22 +627,32 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
             empty.textColor = .secondaryLabelColor
             views = [empty]
         } else {
-            views = entries.enumerated().map { index, entry in
-                makeProcessView(entry: entry, index: index)
-            }
+            views = entries.map(makeProcessView)
         }
 
         let stack = NSStackView(views: views)
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 3, bottom: 0, right: 6)
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 3, bottom: 0, right: 8)
+
+        let fitting = stack.fittingSize
+        stack.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: max(fitting.width, 520),
+            height: 30
+        )
         scrollView.documentView = stack
-        stack.scroll(visibleOrigin)
+        scrollView.layoutSubtreeIfNeeded()
+
+        let maxX = max(0, stack.frame.width - scrollView.contentSize.width)
+        scrollView.contentView.scroll(to: NSPoint(x: min(oldX, maxX), y: 0))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
-    private func makeProcessView(entry: ProcessEntry, index: Int) -> NSView {
-        let shortName = String(entry.name.prefix(20))
+    private func makeProcessView(entry: ProcessEntry) -> NSView {
+        let shortName = String(entry.name.prefix(18))
         let label = NSTextField(
             labelWithString: String(format: "%@ %.0f%%", shortName, entry.cpu)
         )
@@ -578,24 +660,73 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         label.textColor = .white
         label.lineBreakMode = .byTruncatingTail
         label.toolTip = "PID \(entry.pid) — \(entry.name)"
-        label.widthAnchor.constraint(lessThanOrEqualToConstant: 125).isActive = true
+        label.widthAnchor.constraint(lessThanOrEqualToConstant: 110).isActive = true
 
-        let quit = NSButton(title: "Quit", target: self, action: #selector(quitPressed(_:)))
-        quit.tag = index
-        quit.font = .systemFont(ofSize: 10, weight: .semibold)
-        quit.controlSize = .small
-        quit.bezelStyle = .rounded
+        let quitImage = NSImage(
+            systemSymbolName: "rectangle.portrait.and.arrow.right",
+            accessibilityDescription: "Quit"
+        )
+        quitImage?.isTemplate = true
+        let quit = NSButton(
+            image: quitImage ?? NSImage(size: NSSize(width: 15, height: 15)),
+            target: self,
+            action: #selector(quitPressed(_:))
+        )
+        quit.tag = Int(entry.pid)
+        configurePlainActionButton(quit)
         quit.setAccessibilityLabel("Quit \(entry.name)")
 
-        let pair = NSStackView(views: [label, quit])
+        let killImage = NSImage(
+            systemSymbolName: "power",
+            accessibilityDescription: "Force quit"
+        )
+        killImage?.isTemplate = true
+        let kill = NSButton(
+            image: killImage ?? NSImage(size: NSSize(width: 15, height: 15)),
+            target: self,
+            action: #selector(forceKillPressed(_:))
+        )
+        kill.tag = Int(entry.pid)
+        kill.imagePosition = .imageOnly
+        kill.imageScaling = .scaleProportionallyDown
+        kill.imageHugsTitle = true
+        kill.isBordered = true
+        kill.bezelStyle = .rounded
+        kill.bezelColor = .systemRed
+        kill.contentTintColor = .white
+        kill.controlSize = .small
+        kill.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        kill.setAccessibilityLabel("Force quit \(entry.name)")
+
+        let actions = NSStackView(views: [quit, kill])
+        actions.orientation = .horizontal
+        actions.alignment = .centerY
+        actions.spacing = 2
+
+        let pair = NSStackView(views: [label, actions])
         pair.orientation = .horizontal
         pair.alignment = .centerY
         pair.spacing = 4
         return pair
     }
 
+    private func configurePlainActionButton(_ button: NSButton) {
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.imageHugsTitle = true
+        button.isBordered = false
+        button.bezelStyle = .inline
+        button.contentTintColor = .white
+        button.controlSize = .small
+        button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+    }
+
     @objc private func quitPressed(_ sender: NSButton) {
-        onQuit?(sender.tag)
+        onQuit?(pid_t(sender.tag))
+    }
+
+    @objc private func forceKillPressed(_ sender: NSButton) {
+        onForceKill?(pid_t(sender.tag))
     }
 }
 
@@ -628,6 +759,7 @@ private enum ProcessSampler {
         let ownUID = getuid()
         let ownPID = getpid()
         var entries = [ProcessEntry]()
+
         for line in text.split(whereSeparator: \Character.isNewline) {
             let fields = line.split(
                 maxSplits: 3,
@@ -661,5 +793,11 @@ private enum ProcessSampler {
     nonisolated static func terminate(pid: pid_t) -> Bool {
         guard pid > 1, pid != getpid() else { return false }
         return kill(pid, SIGTERM) == 0
+    }
+
+    @discardableResult
+    nonisolated static func forceTerminate(pid: pid_t) -> Bool {
+        guard pid > 1, pid != getpid() else { return false }
+        return kill(pid, SIGKILL) == 0
     }
 }
