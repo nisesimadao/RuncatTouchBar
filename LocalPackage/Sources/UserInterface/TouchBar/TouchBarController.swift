@@ -735,13 +735,13 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
         let visibleX = scrollView.documentVisibleRect.origin.x
         let incomingPIDs = entries.map(\.pid)
         let incomingSet = Set(incomingPIDs)
-        let membershipChanged = incomingSet != Set(orderedPIDs)
 
         for pid in Array(rowsByPID.keys) where !incomingSet.contains(pid) {
             if let row = rowsByPID.removeValue(forKey: pid) {
                 stack.removeArrangedSubview(row)
                 row.removeFromSuperview()
             }
+            orderedPIDs.removeAll { $0 == pid }
         }
 
         if entries.isEmpty {
@@ -764,22 +764,9 @@ private final class ProcessScrollTouchBarItem: NSCustomTouchBarItem {
                 if let row = rowsByPID[entry.pid] {
                     row.update(entry: entry)
                 } else {
-                    rowsByPID[entry.pid] = makeProcessRow(entry: entry)
-                }
-            }
-
-            // CPU values change every second. Reordering on every sample makes the
-            // Touch Bar visibly jump while the user is swiping. Keep a stable row
-            // order while membership is unchanged; only re-rank when a process
-            // enters or leaves the visible top-process set.
-            if membershipChanged || orderedPIDs.isEmpty {
-                orderedPIDs = incomingPIDs
-                let desiredRows = orderedPIDs.compactMap { rowsByPID[$0] }
-                for row in desiredRows {
-                    stack.removeArrangedSubview(row)
-                    row.removeFromSuperview()
-                }
-                for row in desiredRows {
+                    let row = makeProcessRow(entry: entry)
+                    rowsByPID[entry.pid] = row
+                    orderedPIDs.append(entry.pid)
                     stack.addArrangedSubview(row)
                 }
             }
