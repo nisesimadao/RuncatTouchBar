@@ -16,16 +16,18 @@
  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  See the License for the specific language governing permissions and
  limitations under the License.
+
+ Modified for RuncatTouchBar: use a lifecycle delegate that starts the Control
+ Strip integration after RunCat Neo's original services are initialized.
  */
 
 import DataSource
-import Model
 import SwiftUI
 import UserInterface
 
 @main
 struct RunCatNeoApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @NSApplicationDelegateAdaptor(RuncatTouchBarAppDelegate.self) private var appDelegate
     @AppStorage(.showsMetricsBar) private var showsMetricsBar = false
 
     var body: some Scene {
