@@ -7,8 +7,8 @@ RunCat, right where your fingers already are.
 [![macOS](https://img.shields.io/badge/macOS-26%2B-blue)](#requirements)
 
 <p align="center">
-  <a href="docs/assets/touchbar-overview-v2.webp">
-    <img src="docs/assets/touchbar-overview-v2.webp" alt="RuncatTouchBar running in the macOS Control Strip" width="1200" />
+  <a href="docs/assets/touchbar-overview.png">
+    <img src="docs/assets/touchbar-overview.png" alt="RuncatTouchBar running in the macOS Control Strip" width="100%" />
   </a>
 </p>
 
@@ -33,8 +33,8 @@ Tap the runner to expand a compact system monitor directly on the Touch Bar.
 ## Touch Bar monitor
 
 <p align="center">
-  <a href="docs/assets/expanded-monitor-v2.webp">
-    <img src="docs/assets/expanded-monitor-v2.webp" alt="Expanded RuncatTouchBar system monitor" width="1200" />
+  <a href="docs/assets/expanded-monitor.png">
+    <img src="docs/assets/expanded-monitor.png" alt="Expanded RuncatTouchBar system monitor" width="100%" />
   </a>
 </p>
 
@@ -64,8 +64,8 @@ See the [FAQ](./docs/FAQ.md) for more details.
 RuncatTouchBar intentionally reuses the existing RunCat Neo settings instead of maintaining a second configuration system.
 
 <p align="center">
-  <a href="docs/assets/settings.webp">
-    <img src="docs/assets/settings.webp" alt="RunCat Neo settings used by RuncatTouchBar" width="760" />
+  <a href="docs/assets/settings.png">
+    <img src="docs/assets/settings.png" alt="RunCat Neo settings used by RuncatTouchBar" width="100%" />
   </a>
 </p>
 
