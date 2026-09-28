@@ -2,23 +2,25 @@
 
 ## What is RuncatTouchBar?
 
-RuncatTouchBar is a RunCat Neo-derived macOS utility that places the active RunCat runner in the Touch Bar Control Strip. Tapping it opens a compact system/process monitor.
+RuncatTouchBar is an experimental macOS utility derived from RunCat Neo. It places the selected RunCat runner in the Touch Bar Control Strip. Tapping the runner opens a compact system and process monitor.
 
 ## Does it replace the normal Control Strip?
 
-No. The project adds a system-tray item and keeps the normal brightness, volume, and other Apple controls available.
+No. RuncatTouchBar adds one system-tray item and keeps Apple's normal brightness, volume, and other controls available.
 
 ## Why does it require a Touch Bar Mac?
 
-The main feature is implemented with `NSTouchBar` and private Control Strip APIs. Macs without a physical Touch Bar cannot display the integration.
+The main feature uses `NSTouchBar` and private Control Strip APIs. Macs without a physical Touch Bar cannot display the integration.
 
 ## Why is macOS 26 required?
 
-The current codebase and Swift package target macOS 26, matching the RunCat Neo base currently used by this repository.
+The current codebase and Swift package target macOS 26, matching the RunCat Neo base used by this repository.
 
 ## Why does macOS say the app cannot be opened?
 
-Public builds are ad-hoc signed, not Developer ID signed or notarized. First try right-clicking the app and choosing **Open**. If necessary:
+Public builds are ad-hoc signed. They are not Developer ID signed or notarized, so Gatekeeper may block the first launch.
+
+First, right-click the app and choose **Open**. If needed, remove the quarantine attribute:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/RuncatTouchBar.app
@@ -26,24 +28,24 @@ xattr -dr com.apple.quarantine /Applications/RuncatTouchBar.app
 
 ## Why is App Sandbox disabled?
 
-The process monitor needs to inspect user processes and request normal/forced termination. The RuncatTouchBar target therefore runs unsandboxed. See [Security](./SECURITY.md).
+The process monitor needs to inspect user processes and request normal or forced termination. The RuncatTouchBar target therefore runs without App Sandbox. See [Security](./SECURITY.md) for the trade-offs.
 
 ## Does RuncatTouchBar use private APIs?
 
-Yes. Apple does not provide a public API for third-party Control Strip system-tray items. The private symbols are resolved dynamically at runtime. If they are unavailable, the Touch Bar integration does not start.
+Yes. Apple does not provide a public API for third-party Control Strip system-tray items, so the required private symbols are resolved dynamically at runtime. If they are unavailable, the Touch Bar integration does not start.
 
 ## Does it upload my process list or system metrics?
 
-The RuncatTouchBar Touch Bar monitor processes its CPU/process/system information locally and does not intentionally upload that monitor data. The repository is derived from RunCat Neo, so review the source and privacy documentation if you need to audit all inherited features.
+The Touch Bar monitor processes its CPU, process, and system information locally and does not intentionally upload that monitor data. Because the project is derived from RunCat Neo, review the source and [Privacy](./PRIVACY.md) documentation if you need to audit inherited behavior as well.
 
 ## Why does the process order sometimes wait before changing?
 
-The list intentionally avoids aggressive reordering while you are swiping. Once scrolling is idle, CPU ranking can catch up without moving rows under your finger as often.
+The process list avoids aggressive reordering while you are swiping. Once scrolling becomes idle, the CPU ranking can update without moving rows under your finger as often.
 
 ## Can I use an Intel Touch Bar Mac?
 
-The source may be adaptable, but the current public workflow produces an **arm64-only** app. Intel is not currently advertised as a supported downloadable build.
+The source may be adaptable, but the current public workflow produces an **arm64-only** app. Intel Macs are not currently advertised as supported downloadable builds.
 
-## Where are screenshots?
+## Where can I see screenshots?
 
-The README currently uses placeholders. See [DEMO_ASSETS.md](./DEMO_ASSETS.md) for the exact shots to capture on physical hardware.
+The main [README](../README.md) includes the Control Strip, expanded monitor, and shared-settings screenshots. [DEMO_ASSETS.md](./DEMO_ASSETS.md) documents the screenshot set used for releases and documentation.
