@@ -1,47 +1,61 @@
 name: Feature Request
-description: File a feature request.
+description: Propose a RuncatTouchBar-specific improvement.
 title: "[Idea]: "
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        English only. Runner requests → [Runner Gallery](https://runcat-dev.github.io/RunnerGallery/) (not here). New UI languages ARE welcome here.
+        Please use English and keep one feature per issue. Read [CONTRIBUTING.md](https://github.com/nisesimadao/RuncatTouchBar/blob/main/CONTRIBUTING.md) first.
 
-        Skim [CONTRIBUTING.md](https://github.com/runcat-dev/RunCatNeo/blob/main/CONTRIBUTING.md) first — it defines the acceptance bar (benefit must outweigh maintenance cost) and the one-issue-per-topic rule.
+        General RunCat Neo features should normally be proposed upstream. Runner requests belong in the [Runner Gallery](https://runcat-dev.github.io/RunnerGallery/).
 
   - type: textarea
-    id: overview
+    id: problem
     attributes:
-      label: "Overview of the requested feature"
+      label: "Problem or use case"
+      description: "Describe what is difficult or missing before proposing the implementation."
     validations:
       required: true
 
   - type: textarea
-    id: reason
+    id: proposal
     attributes:
-      label: "Why this feature is worth the maintenance cost"
-      description: "Who benefits, how broadly, and why the benefit outweighs the ongoing cost of shipping and maintaining it."
+      label: "Proposed behavior"
     validations:
       required: true
+
+  - type: textarea
+    id: touchbar-scope
+    attributes:
+      label: "Why this belongs in RuncatTouchBar"
+      description: "Explain why the change is specific to the Touch Bar / Control Strip integration rather than RunCat Neo generally."
+    validations:
+      required: true
+
+  - type: textarea
+    id: private-api-impact
+    attributes:
+      label: "Private API or process-control impact (optional)"
+      description: "If the proposal adds private Touch Bar API usage or process-control behavior, describe the required surface and failure behavior."
+    validations:
+      required: false
 
   - type: textarea
     id: related-issues
     attributes:
-      label: "Related Issues (optional)"
+      label: "Related issues or references (optional)"
     validations:
       required: false
 
   - type: checkboxes
     id: checklist
     attributes:
-      label: "Check List"
+      label: "Checklist"
       options:
-        - label: "I have read [CONTRIBUTING.md](https://github.com/runcat-dev/RunCatNeo/blob/main/CONTRIBUTING.md)."
+        - label: "I have read [CONTRIBUTING.md](https://github.com/nisesimadao/RuncatTouchBar/blob/main/CONTRIBUTING.md)."
           required: true
-        - label: "This benefits a wide range of users, and its benefit clearly outweighs the ongoing maintenance cost."
+        - label: "I searched existing issues for duplicates."
           required: true
-        - label: "Not a runner request (those go to the [Runner Gallery](https://runcat-dev.github.io/RunnerGallery/))."
-          required: true
-        - label: "No duplicate exists. I will file any similar-but-distinct ideas as separate issues rather than stacking them here."
+        - label: "This is not a runner request for the upstream Runner Gallery."
           required: true
